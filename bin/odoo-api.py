@@ -2,19 +2,18 @@
 
 import logging
 import requests
+import sys
 from pprint import pprint, pformat
 
 try:
-    import configargparse as argparse
-
-    HAVE_CONFIG_ARG_PARSE_MODULE = True
+    from configargparse import ArgumentParser
 except ImportError:
-    import argparse
+    from argparse import ArgumentParser
 
 
 def getArgparser():
-    argparser = argparse.ArgumentParser(description="odoo api.")
-    if HAVE_CONFIG_ARG_PARSE_MODULE:
+    argparser = ArgumentParser(description="odoo api.")
+    if "configargparse" in sys.modules:
         argparser.add_argument(
             "-c", "--config", is_config_file=True, help="Config file path."
         )
@@ -23,10 +22,10 @@ def getArgparser():
     )
 
     subparsers = argparser.add_subparsers(dest="command")
-    get_customers = subparsers.add_parser("get_customers")
-    get_active_subscriptions = subparsers.add_parser("get_active_subscriptions")
-    get_subscription_credentials = subparsers.add_parser("get_subscription_credentials")
-    get_support_customers = subparsers.add_parser("get_support_customers")
+    get_customers = subparsers.add_parser("customers")
+    get_active_subscriptions = subparsers.add_parser("active_subscriptions")
+    get_subscription_credentials = subparsers.add_parser("subscription_credentials")
+    get_support_customers = subparsers.add_parser("support_customers")
     return argparser
 
 
@@ -123,10 +122,10 @@ if __name__ == "__main__":
     )
 
     method_map = {
-        "get_customers": odoo.get_customers,
-        "get_active_subscriptions": odoo.get_active_subscriptions,
-        "get_subscription_credentials": odoo.get_subscription_credentials,
-        "get_support_customers": odoo.get_support_customers,
+        "customers": odoo.get_customers,
+        "active_subscriptions": odoo.get_active_subscriptions,
+        "subscription_credentials": odoo.get_subscription_credentials,
+        "support_customers": odoo.get_support_customers,
     }
 
     if args.command in method_map:
