@@ -23,6 +23,9 @@ def getArgparser():
         "-d", "--debug", action="store_true", help="enable debugging output"
     )
     argparser.add_argument(
+        "-v", "--verbose", action="store_true", help="verbose output"
+    )
+    argparser.add_argument(
         "--url", default="https://bareos.odoo.com", help="URL of odoo server"
     )
     argparser.add_argument("--database", "--db", required=True, help="odoo database")
@@ -36,6 +39,11 @@ def getArgparser():
     get_active_subscriptions = subparsers.add_parser("active_subscriptions")
     get_subscription_credentials = subparsers.add_parser("subscription_credentials")
     get_support_customers = subparsers.add_parser("support_customers")
+    search_list = subparsers.add_parser("list")
+    search_list.add_argument("model")
+    show = subparsers.add_parser("show")
+    show.add_argument("model")
+    show.add_argument("id")
     return argparser
 
 
@@ -112,6 +120,36 @@ class odoo_api:
             "get_support_customers_api",
         )
 
+    def search_list(self, args):
+        return self.execute_kw(
+            args.model,
+            "search_read",
+            [],
+            {"fields": ["id", "name", "display_name"], "order": "id ASC"},
+        )
+
+    def show(self, args):
+        # not working:
+        # return self.execute_kw(
+        #     args.model,
+        #     "read",
+        #     [[ args.id ]],
+        #     #{"fields": ["name"]},
+        # )
+        result = self.execute_kw(
+            args.model,
+            "search_read",
+            [[["id", "=", args.id]]],
+            # {"fields": ["name"]},
+        )
+
+        if args.verbose:
+            return result
+        return [
+            {k: v for k, v in record.items() if v not in ("", [], None, 0, 0.0)}
+            for record in result
+        ]
+
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -131,10 +169,14 @@ if __name__ == "__main__":
         "active_subscriptions": odoo.get_active_subscriptions,
         "subscription_credentials": odoo.get_subscription_credentials,
         "support_customers": odoo.get_support_customers,
+        "list": odoo.search_list,
+        "show": odoo.show,
     }
 
     if args.command in method_map:
         result = method_map[args.command](args)
         pprint(result)
     else:
+        # raise RuntimeError(f"unsupported command {args.command}")
+        print(f"unsupported command '{args.command}'\n")
         parser.print_help()
