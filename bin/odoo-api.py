@@ -6,13 +6,15 @@ import sys
 from pprint import pprint, pformat
 
 try:
-    from configargparse import ArgumentParser
+    import configargparse as argparse
 except ImportError:
-    from argparse import ArgumentParser
+    import argparse
 
 
 def getArgparser():
-    argparser = ArgumentParser(description="odoo api.")
+    argparser = argparse.ArgumentParser(
+        description="odoo api.", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     if "configargparse" in sys.modules:
         argparser.add_argument(
             "-c", "--config", is_config_file=True, help="Config file path."
@@ -20,6 +22,14 @@ def getArgparser():
     argparser.add_argument(
         "-d", "--debug", action="store_true", help="enable debugging output"
     )
+    argparser.add_argument(
+        "--url", default="https://bareos.odoo.com", help="URL of odoo server"
+    )
+    argparser.add_argument("--database", "--db", required=True, help="odoo database")
+    argparser.add_argument(
+        "--username", "--user", required=True, help="odoo username (email address)"
+    )
+    argparser.add_argument("--apikey", required=True, help="odoo api key")
 
     subparsers = argparser.add_subparsers(dest="command")
     get_customers = subparsers.add_parser("customers")
@@ -114,12 +124,7 @@ if __name__ == "__main__":
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    odoo = odoo_api(
-        "http://localhost:8069",
-        "odoo3",
-        "joerg.steffens@bareos.com",
-        "d860c4e1fdbba9284de9231c8ed449fe447ce50e",
-    )
+    odoo = odoo_api(args.url, args.database, args.username, args.apikey)
 
     method_map = {
         "customers": odoo.get_customers,
