@@ -35,15 +35,15 @@ def getArgparser():
     argparser.add_argument("--apikey", required=True, help="odoo api key")
 
     subparsers = argparser.add_subparsers(dest="command")
-    get_customers = subparsers.add_parser("customers")
-    get_active_subscriptions = subparsers.add_parser("active_subscriptions")
-    get_subscription_credentials = subparsers.add_parser("subscription_credentials")
-    get_support_customers = subparsers.add_parser("support_customers")
     search_list = subparsers.add_parser("list")
     search_list.add_argument("model")
     show = subparsers.add_parser("show")
     show.add_argument("model")
     show.add_argument("id")
+    get_customers = subparsers.add_parser("customers")
+    get_active_subscriptions = subparsers.add_parser("active_subscriptions")
+    get_subscription_credentials = subparsers.add_parser("subscription_credentials")
+    get_support_customers = subparsers.add_parser("support_customers")
     return argparser
 
 
