@@ -40,6 +40,8 @@ def getArgparser():
     show = subparsers.add_parser("show")
     show.add_argument("model")
     show.add_argument("id")
+    reinit = subparsers.add_parser("reinit")
+    reinit.add_argument("model")
     get_customers = subparsers.add_parser("customers")
     get_active_subscriptions = subparsers.add_parser("active_subscriptions")
     get_subscription_credentials = subparsers.add_parser("subscription_credentials")
@@ -149,6 +151,14 @@ class odoo_api:
             {k: v for k, v in record.items() if v not in ("", [], None, 0, 0.0)}
             for record in result
         ]
+    
+    def reinit(self, args):
+        return self.execute_kw(
+            args.model,
+            "recompute_fields",
+            [],
+            #{"fields": ["id", "name", "display_name"], "order": "id ASC"},
+        )
 
 
 if __name__ == "__main__":
@@ -171,6 +181,7 @@ if __name__ == "__main__":
         "support_customers": odoo.get_support_customers,
         "list": odoo.search_list,
         "show": odoo.show,
+        "reinit": odoo.reinit,
     }
 
     if args.command in method_map:
