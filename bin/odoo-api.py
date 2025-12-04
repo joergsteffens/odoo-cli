@@ -28,7 +28,8 @@ def getArgparser():
     argparser.add_argument(
         "--url", default="https://bareos.odoo.com", help="URL of odoo server"
     )
-    argparser.add_argument("--database", "--db", required=True, help="odoo database")
+    argparser.add_argument("--database", "--db", help="odoo database")
+    argparser.add_argument("--db_name_endpoint_token", help="secret key to get odoos database name")    
     argparser.add_argument(
         "--username", "--user", required=True, help="odoo username (email address)"
     )
@@ -48,6 +49,11 @@ def getArgparser():
     get_support_customers = subparsers.add_parser("support_customers")
     return argparser
 
+def get_db_name(baseurl, token):
+    response = requests.get(baseurl + "/.well-known/odoo-db", headers={"X-DB-TOKEN": token}, timeout=5)
+    response.raise_for_status()
+    dbname = response.json()["dbname"]
+    return dbname
 
 class odoo_api:
     def __init__(self, baseurl, db, username, api_key):
@@ -171,8 +177,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.debug:
         logger.setLevel(logging.DEBUG)
-
-    odoo = odoo_api(args.url, args.database, args.username, args.apikey)
+        
+    if (not args.database) and (not args.db_name_endpoint_token):
+        parser.error("At least one of --database or --db_name_endpoint_token is required")
+       
+    database = args.database
+    if not database:
+        logger.debug("try to detect database")
+        database = get_db_name(args.url, args.db_name_endpoint_token)
+        logger.debug(f"using database: {database}")
+        
+    odoo = odoo_api(args.url, database, args.username, args.apikey)
 
     method_map = {
         "customers": odoo.get_customers,
