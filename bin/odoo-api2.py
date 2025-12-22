@@ -68,10 +68,10 @@ class odoo_api:
         self.logger = logging.getLogger()
         self.url = baseurl + "/json/2"
         self.db = db
-        #self.username = username
+        # self.username = username
         self.api_key = api_key
-        #self.uid = self._auth()
-    
+        # self.uid = self._auth()
+
     def json2(self, model, method, kwargs=None):
         headers = {
             "Authorization": f"bearer {self.api_key}",
@@ -82,7 +82,7 @@ class odoo_api:
         if kwargs:
             data = kwargs.copy()
         data["context"] = {"lang": "en_US"}
-       
+
         response = requests.post(
             f"{self.url}/{model}/{method}",
             headers=headers,
@@ -103,9 +103,12 @@ class odoo_api:
         return self.json2(
             "res.partner",
             "search_read",
-            {"domain": [["customer_rank", ">", 0]], "fields": ["name", "email"], "limit": 10},
+            {
+                "domain": [["customer_rank", ">", 0]],
+                "fields": ["name", "email"],
+                "limit": 10,
+            },
         )
-    
 
     def get_active_subscriptions(self, args):
         return self.json2("res.partner", "get_active_subscriptions_api")
@@ -125,7 +128,6 @@ class odoo_api:
             "search_read",
             {"fields": ["id", "name", "display_name"], "order": "id ASC"},
         )
-    
 
     def show(self, args):
         # not working:
@@ -138,7 +140,9 @@ class odoo_api:
         result = self.json2(
             args.model,
             "search_read",
-            { "domain": [["id", "=", args.id]], }
+            {
+                "domain": [["id", "=", args.id]],
+            }
             # {"fields": ["name"]},
         )
 
@@ -160,7 +164,7 @@ class odoo_api:
         return self.json2(
             "mail.thread",
             "message_process",
-            { "model": False, "message": message },
+            {"model": False, "message": message},
         )
 
 
