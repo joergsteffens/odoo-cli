@@ -32,9 +32,6 @@ def getArgparser():
     argparser.add_argument(
         "--db_name_endpoint_token", help="secret key to get odoos database name"
     )
-    argparser.add_argument(
-        "--username", "--user", required=True, help="odoo username (email address)"
-    )
     argparser.add_argument("--apikey", required=True, help="odoo api key")
 
     subparsers = argparser.add_subparsers(dest="command")
@@ -64,15 +61,19 @@ def get_db_name(baseurl, token):
 
 
 class odoo_api:
-    def __init__(self, baseurl, db, username, api_key):
+    def __init__(self, baseurl, db, api_key):
         self.logger = logging.getLogger()
         self.url = baseurl + "/json/2"
         self.db = db
-        # self.username = username
         self.api_key = api_key
-        # self.uid = self._auth()
 
-    def json2(self, model, method, kwargs=None):
+    def json2(self, odoo_model, odoo_method, *args, **kwargs):
+        # AFAIK, the odoo json2 API uses named parameter,
+        # not no args without name.
+        # Still, keep args as paramter for completeness.
+        if args:
+            raise RuntimeError(f"args given ({args}), but not expected.")
+
         headers = {
             "Authorization": f"bearer {self.api_key}",
             "X-Odoo-Database": self.db,
@@ -81,33 +82,22 @@ class odoo_api:
         data = {}
         if kwargs:
             data = kwargs.copy()
-        data["context"] = {"lang": "en_US"}
 
         response = requests.post(
-            f"{self.url}/{model}/{method}",
+            f"{self.url}/{odoo_model}/{odoo_method}",
             headers=headers,
             json=data,
         )
         response.raise_for_status()
-        # if "error" in response.json():
-        #     raise RuntimeError(pformat(response.json()))
         return response.json()
 
     def get_customers(self, args):
-        # return self.execute_kw(
-        #     "res.partner",
-        #     "search_read",
-        #     [[["customer_rank", ">", 0]]],
-        #     {"fields": ["name", "email"], "limit": 10},
-        # )
         return self.json2(
             "res.partner",
             "search_read",
-            {
-                "domain": [["customer_rank", ">", 0]],
-                "fields": ["name", "email"],
-                "limit": 10,
-            },
+            domain=[["customer_rank", ">", 0]],
+            fields=["name", "email"],
+            limit=10,
         )
 
     def get_active_subscriptions(self, args):
@@ -126,7 +116,8 @@ class odoo_api:
         return self.json2(
             args.model,
             "search_read",
-            {"fields": ["id", "name", "display_name"], "order": "id ASC"},
+            fields=["id", "name", "display_name"],
+            order="id ASC",
         )
 
     def show(self, args):
@@ -140,9 +131,7 @@ class odoo_api:
         result = self.json2(
             args.model,
             "search_read",
-            {
-                "domain": [["id", "=", args.id]],
-            }
+            domain=[["id", "=", args.id]],
             # {"fields": ["name"]},
         )
 
@@ -164,7 +153,8 @@ class odoo_api:
         return self.json2(
             "mail.thread",
             "message_process",
-            {"model": False, "message": message},
+            model=False,
+            message=message,
         )
 
 
@@ -190,7 +180,7 @@ if __name__ == "__main__":
         database = get_db_name(args.url, args.db_name_endpoint_token)
         logger.debug(f"using database: {database}")
 
-    odoo = odoo_api(args.url, database, args.username, args.apikey)
+    odoo = odoo_api(args.url, database, args.apikey)
 
     method_map = {
         "customers": odoo.get_customers,
