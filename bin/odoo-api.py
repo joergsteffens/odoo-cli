@@ -66,6 +66,11 @@ class odoo_api:
         self.url = baseurl + "/json/2"
         self.db = db
         self.api_key = api_key
+        self.headers = {
+            "Authorization": f"bearer {self.api_key}",
+            "X-Odoo-Database": self.db,
+            "User-Agent": "odoo-api " + requests.utils.default_user_agent(),
+        }
 
     def json2(self, odoo_model, odoo_method, *args, **kwargs):
         # AFAIK, the odoo json2 API uses named parameter,
@@ -74,18 +79,13 @@ class odoo_api:
         if args:
             raise RuntimeError(f"args given ({args}), but not expected.")
 
-        headers = {
-            "Authorization": f"bearer {self.api_key}",
-            "X-Odoo-Database": self.db,
-            "User-Agent": "odoo-api " + requests.utils.default_user_agent(),
-        }
         data = {}
         if kwargs:
             data = kwargs.copy()
 
         response = requests.post(
             f"{self.url}/{odoo_model}/{odoo_method}",
-            headers=headers,
+            headers=self.headers,
             json=data,
         )
         response.raise_for_status()
