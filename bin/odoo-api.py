@@ -92,7 +92,13 @@ class odoo_api:
         response.raise_for_status()
         return response.json()
 
+    def get_version(self, args):
+        return self.json2(
+            "web", "version",
+        )
+
     def get_customers(self, args):
+        return self.get_version(args)
         return self.json2(
             "res.partner",
             "search_read",
