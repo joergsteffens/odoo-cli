@@ -61,16 +61,17 @@ def get_db_name(baseurl, token):
 
 
 class odoo_api:
-    def __init__(self, baseurl, db, api_key):
+    def __init__(self, baseurl, api_key, db=None):
         self.logger = logging.getLogger()
-        self.url = baseurl + "/json/2"
-        self.db = db
+        self.baseurl = baseurl + "/json/2"
         self.api_key = api_key
+        self.db = db
         self.headers = {
-            "Authorization": f"bearer {self.api_key}",
-            "X-Odoo-Database": self.db,
             "User-Agent": "odoo-api " + requests.utils.default_user_agent(),
+            "Authorization": f"bearer {self.api_key}",
         }
+        if self.db:
+            self.headers["X-Odoo-Database"] = self.db
 
     def json2(self, odoo_model, odoo_method, *args, **kwargs):
         # AFAIK, the odoo json2 API uses named parameter,
@@ -84,7 +85,7 @@ class odoo_api:
             data = kwargs.copy()
 
         response = requests.post(
-            f"{self.url}/{odoo_model}/{odoo_method}",
+            f"{self.baseurl}/{odoo_model}/{odoo_method}",
             headers=self.headers,
             json=data,
         )
@@ -169,18 +170,18 @@ if __name__ == "__main__":
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    if (not args.database) and (not args.db_name_endpoint_token):
-        parser.error(
-            "At least one of --database or --db_name_endpoint_token is required"
-        )
+    # if (not args.database) and (not args.db_name_endpoint_token):
+    #     parser.error(
+    #         "At least one of --database or --db_name_endpoint_token is required"
+    #     )
 
     database = args.database
-    if not database:
+    if not database and args.db_name_endpoint_token:
         logger.debug("try to detect database")
         database = get_db_name(args.url, args.db_name_endpoint_token)
         logger.debug(f"using database: {database}")
 
-    odoo = odoo_api(args.url, database, args.apikey)
+    odoo = odoo_api(args.url, args.apikey, database)
 
     method_map = {
         "customers": odoo.get_customers,
