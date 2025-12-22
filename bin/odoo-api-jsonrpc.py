@@ -66,66 +66,81 @@ def get_db_name(baseurl, token):
 class odoo_api:
     def __init__(self, baseurl, db, username, api_key):
         self.logger = logging.getLogger()
-        self.url = baseurl + "/json/2"
+        self.url = baseurl + "/jsonrpc"
         self.db = db
-        # self.username = username
+        self.username = username
         self.api_key = api_key
-        # self.uid = self._auth()
+        self.uid = self._auth()
 
-    def json2(self, model, method, kwargs=None):
-        headers = {
-            "Authorization": f"bearer {self.api_key}",
-            "X-Odoo-Database": self.db,
-            "User-Agent": "odoo-api " + requests.utils.default_user_agent(),
-        }
-        data = {}
-        if kwargs:
-            data = kwargs.copy()
-        data["context"] = {"lang": "en_US"}
-
-        response = requests.post(
-            f"{self.url}/{model}/{method}",
-            headers=headers,
-            json=data,
-        )
-        response.raise_for_status()
-        # if "error" in response.json():
-        #     raise RuntimeError(pformat(response.json()))
-        return response.json()
-
-    def get_customers(self, args):
-        # return self.execute_kw(
-        #     "res.partner",
-        #     "search_read",
-        #     [[["customer_rank", ">", 0]]],
-        #     {"fields": ["name", "email"], "limit": 10},
-        # )
-        return self.json2(
-            "res.partner",
-            "search_read",
+    def _auth(self):
+        uid = self.json_rpc(
             {
-                "domain": [["customer_rank", ">", 0]],
-                "fields": ["name", "email"],
-                "limit": 10,
+                "service": "common",
+                "method": "authenticate",
+                "args": [self.db, self.username, self.api_key, {}],
             },
         )
 
+        if not uid:
+            raise RuntimeError("Login failed")
+        self.logger.debug(f"login uid:  {uid}")
+        return uid
+
+    def json_rpc(self, params):
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "call",
+            "params": params,
+            "id": 1,
+        }
+        response = requests.post(self.url, json=payload, headers=headers)
+        response.raise_for_status()
+        if "error" in response.json():
+            raise RuntimeError(pformat(response.json()))
+        return response.json()["result"]
+
+    def execute_kw(self, model, method, args=None, kwargs=None):
+        # model	str	Name of the model (e.g. 'res.partner')
+        # method	str	Name of the method to call (e.g. 'search_read', 'create')
+        # args	list	Positional arguments (like search domain or record values)
+        # kwargs	dict (opt.)	Optional keyword arguments like fields, context, etc.
+        if args is None:
+            args = []
+        result = self.json_rpc(
+            {
+                "service": "object",
+                "method": "execute_kw",
+                "args": [self.db, self.uid, self.api_key, model, method, args, kwargs],
+            },
+        )
+        return result
+
+    def get_customers(self, args):
+        return self.execute_kw(
+            "res.partner",
+            "search_read",
+            [[["customer_rank", ">", 0]]],
+            {"fields": ["name", "email"], "limit": 10},
+        )
+
     def get_active_subscriptions(self, args):
-        return self.json2("res.partner", "get_active_subscriptions_api")
+        return self.execute_kw("res.partner", "get_active_subscriptions_api")
 
     def get_subscription_credentials(self, args):
-        return self.json2("res.partner", "get_subscription_credentials_api")
+        return self.execute_kw("res.partner", "get_subscription_credentials_api")
 
     def get_support_customers(self, args):
-        return self.json2(
+        return self.execute_kw(
             "res.partner",
             "get_support_customers_api",
         )
 
     def search_list(self, args):
-        return self.json2(
+        return self.execute_kw(
             args.model,
             "search_read",
+            [],
             {"fields": ["id", "name", "display_name"], "order": "id ASC"},
         )
 
@@ -137,12 +152,10 @@ class odoo_api:
         #     [[ args.id ]],
         #     #{"fields": ["name"]},
         # )
-        result = self.json2(
+        result = self.execute_kw(
             args.model,
             "search_read",
-            {
-                "domain": [["id", "=", args.id]],
-            }
+            [[["id", "=", args.id]]],
             # {"fields": ["name"]},
         )
 
@@ -154,17 +167,20 @@ class odoo_api:
         ]
 
     def reinit(self, args):
-        return self.json2(
+        return self.execute_kw(
             args.model,
             "recompute_fields",
+            [],
+            # {"fields": ["id", "name", "display_name"], "order": "id ASC"},
         )
 
     def mail_add(self, args):
+        message_model = False
         message = args.email.read()
-        return self.json2(
+        return self.execute_kw(
             "mail.thread",
             "message_process",
-            {"model": False, "message": message},
+            [message_model, message],
         )
 
 
