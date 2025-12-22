@@ -35,6 +35,7 @@ def getArgparser():
     argparser.add_argument("--apikey", required=True, help="odoo api key")
 
     subparsers = argparser.add_subparsers(dest="command")
+    identity = subparsers.add_parser("identity")
     search_list = subparsers.add_parser("list")
     search_list.add_argument("model")
     show = subparsers.add_parser("show")
@@ -63,7 +64,8 @@ def get_db_name(baseurl, token):
 class odoo_api:
     def __init__(self, baseurl, api_key, db=None):
         self.logger = logging.getLogger()
-        self.baseurl = baseurl + "/json/2"
+        self.baseurl = baseurl
+        self.apiurl = baseurl + "/json/2"
         self.api_key = api_key
         self.db = db
         self.headers = {
@@ -73,7 +75,7 @@ class odoo_api:
         if self.db:
             self.headers["X-Odoo-Database"] = self.db
 
-    def json2(self, odoo_model, odoo_method, *args, **kwargs):
+    def call(self, baseurl, odoo_model, odoo_method, *args, **kwargs):
         # AFAIK, the odoo json2 API uses named parameter,
         # not no args without name.
         # Still, keep args as paramter for completeness.
@@ -85,20 +87,33 @@ class odoo_api:
             data = kwargs.copy()
 
         response = requests.post(
-            f"{self.baseurl}/{odoo_model}/{odoo_method}",
+            f"{baseurl}/{odoo_model}/{odoo_method}",
             headers=self.headers,
             json=data,
         )
         response.raise_for_status()
         return response.json()
 
+    def json2(self, odoo_model, odoo_method, *args, **kwargs):
+        return self.call(self.apiurl, odoo_model, odoo_method, *args, **kwargs)
+
     def get_version(self, args):
+        # does not work, neither as json2, nor as direct call.
         return self.json2(
-            "web", "version",
+            "web",
+            "version",
         )
 
+    def get_databases(self, args):
+        # does not require authentication.
+        # call returns a jsonrpc dict. We only care about result.
+        return self.call(self.baseurl, "web", "database/list")["result"]
+
+    def get_user_context(self, args):
+        return self.json2("res.users", "context_get")
+        # show res.users 2 -> "display_name"
+
     def get_customers(self, args):
-        return self.get_version(args)
         return self.json2(
             "res.partner",
             "search_read",
@@ -190,6 +205,7 @@ if __name__ == "__main__":
     odoo = odoo_api(args.url, args.apikey, database)
 
     method_map = {
+        "identity": odoo.get_user_context,
         "customers": odoo.get_customers,
         "active_subscriptions": odoo.get_active_subscriptions,
         "subscription_credentials": odoo.get_subscription_credentials,
