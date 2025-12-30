@@ -48,7 +48,8 @@ def getArgparser():
     get_subscription_credentials = subparsers.add_parser("subscription_credentials")
     get_support_customers = subparsers.add_parser("support_customers")
     mail_add = subparsers.add_parser("mail-add")
-    mail_add.add_argument("email", type=argparse.FileType("r"))
+    mail_add.add_argument("--model", help="Odoo model, into which the emails get processed, e.g. 'crm.lead'. (default: %(default)s)",  default=False)
+    mail_add.add_argument("email", type=argparse.FileType("r"), help="File containing a full email (extension is often .eml). Use '-' to stdin.")
     return argparser
 
 
@@ -94,8 +95,8 @@ class odoo_api:
         response.raise_for_status()
         return response.json()
 
-    def json2(self, odoo_model, odoo_method, *args, **kwargs):
-        return self.call(self.apiurl, odoo_model, odoo_method, *args, **kwargs)
+    def json2(self, odoo_model, odoo_method, **kwargs):
+        return self.call(self.apiurl, odoo_model, odoo_method, **kwargs)
 
     def get_version(self, args):
         # does not work, neither as json2, nor as direct call.
@@ -171,11 +172,12 @@ class odoo_api:
         )
 
     def mail_add(self, args):
+        model = args.model
         message = args.email.read()
         return self.json2(
             "mail.thread",
             "message_process",
-            model=False,
+            model=model,
             message=message,
         )
 
