@@ -36,6 +36,7 @@ def getArgparser():
 
     subparsers = argparser.add_subparsers(dest="command")
     identity = subparsers.add_parser("identity")
+    databases = subparsers.add_parser("databases")
     search_list = subparsers.add_parser("list")
     search_list.add_argument("model")
     show = subparsers.add_parser("show")
@@ -79,7 +80,7 @@ class odoo_api:
     def call(self, baseurl, odoo_model, odoo_method, *args, **kwargs):
         # AFAIK, the odoo json2 API uses named parameter,
         # not no args without name.
-        # Still, keep args as paramter for completeness.
+        # Still, keep args as parameter for completeness.
         if args:
             raise RuntimeError(f"args given ({args}), but not expected.")
 
@@ -208,6 +209,7 @@ if __name__ == "__main__":
 
     method_map = {
         "identity": odoo.get_user_context,
+        "databases": odoo.get_databases,
         "customers": odoo.get_customers,
         "active_subscriptions": odoo.get_active_subscriptions,
         "subscription_credentials": odoo.get_subscription_credentials,
