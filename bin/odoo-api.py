@@ -2,6 +2,7 @@
 
 import logging
 import requests
+import json
 import sys
 from pathlib import Path
 from pprint import pprint, pformat
@@ -80,6 +81,11 @@ def getArgparser():
         type=type_directory,
         metavar="DIRECTORY",
         help="Directory to store config dump files.",
+    )
+    config.add_argument(
+        "--json",
+        action="store_true",
+        help="Output in JSON format.",
     )
     return argparser
 
@@ -244,14 +250,22 @@ class odoo_api:
             order = "id ASC"
             result = self._dump(model, order=order)
             if args.output_directory:
-                filename = model  # + ".dump"
+                filename = model + ".json"
                 path = args.output_directory / filename
                 self.logger.info(f"path={path}")
                 with path.open("w") as f:
-                    f.write(pformat(result))
+                    if args.json:
+                        f.write(json.dumps(result, indent=4))
+                    else:
+                        f.write(pformat(result))
+
             else:
                 print(f"### {model}")
-                pprint(result)
+                if args.json:
+                    print(json.dumps(result, indent=4))
+                else:
+                    pprint(result)
+
         return True
 
 

@@ -28,7 +28,7 @@ dump2git()
   $GIT branch $INSTANCE 2>/dev/null || true
   $GIT checkout $INSTANCE
   rm ${TARGET_DIR}/*
-  ${SCRIPT_DIR}/odoo-api.py -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR}
+  ${SCRIPT_DIR}/odoo-api.py -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR} --json
   $GIT add --all
   if $GIT commit -m "auto-update" --no-gpg-sign; then
     $GIT push -u origin $INSTANCE
