@@ -10,6 +10,7 @@ ODOOS="dev-joergs-local staging production"
 TARGET_DIR="/home/joergs/git/bareos/extra/odoo-config"
 GIT="git -C ${TARGET_DIR}"
 LANG=C
+SCRIPT_DIR="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))"
 
 error()
 {
@@ -19,7 +20,7 @@ error()
 dump2git()
 {
   INSTANCE="$1"
-  CONFIGFILE="odoo-api-$INSTANCE.conf"
+  CONFIGFILE="${SCRIPT_DIR}/odoo-api-$INSTANCE.conf"
   if ! [ -r "$CONFIGFILE" ]; then
     error "failed to read config file '$CONFIGFILE' for instance '$INSTANCE'"
     exit 1
@@ -27,7 +28,7 @@ dump2git()
   $GIT branch $INSTANCE 2>/dev/null || true
   $GIT checkout $INSTANCE
   rm ${TARGET_DIR}/*
-  ./odoo-api.py -c odoo-api-$INSTANCE.conf config-dump --output-directory ${TARGET_DIR}
+  ${SCRIPT_DIR}/odoo-api.py -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR}
   $GIT add --all
   if $GIT commit -m "auto-update" --no-gpg-sign; then
     $GIT push -u origin $INSTANCE
