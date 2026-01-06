@@ -3,12 +3,20 @@
 import logging
 import requests
 import sys
+from pathlib import Path
 from pprint import pprint, pformat
 
 try:
     import configargparse as argparse
 except ImportError:
     import argparse
+
+
+def type_directory(path):
+    directory = Path(path)
+    if not directory.is_dir():
+        raise argparse.ArgumentTypeError("must be a existing directory")
+    return directory
 
 
 def getArgparser():
@@ -33,7 +41,7 @@ def getArgparser():
     #     "--db_name_endpoint_token", help="secret key to get odoos database name"
     # )
     argparser.add_argument("--apikey", required=True, help="odoo api key")
-    
+
     model_argument_kw = {
         "help": "Odoo model, e.g. res.users, res.partner, crm.lead, ..."
     }
@@ -46,6 +54,8 @@ def getArgparser():
     show = subparsers.add_parser("show")
     show.add_argument("model", **model_argument_kw)
     show.add_argument("id")
+    dump = subparsers.add_parser("dump")
+    dump.add_argument("model", **model_argument_kw)
     reinit = subparsers.add_parser("reinit")
     reinit.add_argument("model", **model_argument_kw)
     get_customers = subparsers.add_parser("customers")
@@ -53,8 +63,24 @@ def getArgparser():
     get_subscription_credentials = subparsers.add_parser("subscription_credentials")
     get_support_customers = subparsers.add_parser("support_customers")
     mail_add = subparsers.add_parser("mail-add")
-    mail_add.add_argument("--model", help="Odoo model, into which the emails get processed, e.g. 'crm.lead'. (default: %(default)s)",  default=False)
-    mail_add.add_argument("email", type=argparse.FileType("r"), help="File containing a full email (extension is often .eml). Use '-' to stdin.")
+    mail_add.add_argument(
+        "--model",
+        help="Odoo model, into which the emails get processed, e.g. 'crm.lead'. (default: %(default)s)",
+        default=False,
+    )
+    mail_add.add_argument(
+        "email",
+        type=argparse.FileType("r"),
+        help="File containing a full email (extension is often .eml). Use '-' to stdin.",
+    )
+    config = subparsers.add_parser("config-dump")
+    config.add_argument(
+        "-o",
+        "--output-directory",
+        type=type_directory,
+        metavar="DIRECTORY",
+        help="Directory to store config dump files.",
+    )
     return argparser
 
 
@@ -140,13 +166,28 @@ class odoo_api:
             "get_support_customers_api",
         )
 
-    def search_list(self, args):
+    def _dump(self, model, domain=None, fields=None, order=None):
+        if domain:
+            mydomain = domain
+        else:
+            mydomain = []
         return self.json2(
-            args.model,
+            model,
             "search_read",
+            domain=mydomain,
+            fields=fields,
+            order=order,
+        )
+
+    def search_list(self, args):
+        return self._dump(
+            args.model,
             fields=["id", "name", "display_name"],
             order="id ASC",
         )
+
+    def dump(self, args):
+        return self._dump(args.model)
 
     def show(self, args):
         # not working:
@@ -156,11 +197,9 @@ class odoo_api:
         #     [[ args.id ]],
         #     #{"fields": ["name"]},
         # )
-        result = self.json2(
+        result = self._dump(
             args.model,
-            "search_read",
             domain=[["id", "=", args.id]],
-            # {"fields": ["name"]},
         )
 
         if args.verbose:
@@ -185,6 +224,35 @@ class odoo_api:
             model=model,
             message=message,
         )
+
+    def config_dump(self, args):
+        models = [
+            # system parameter
+            "ir.config_parameter",
+            # company
+            "res.company",
+            # user config
+            "res.users",
+            "res.users.settings",
+            "res.users.apikeys",
+            # empty and should never contain usable data.
+            # "res.config.settings",
+            # "res.device",
+            # "res.device.log",
+        ]
+        for model in models:
+            order = "id ASC"
+            result = self._dump(model, order=order)
+            if args.output_directory:
+                filename = model  # + ".dump"
+                path = args.output_directory / filename
+                self.logger.info(f"path={path}")
+                with path.open("w") as f:
+                    f.write(pformat(result))
+            else:
+                print(f"### {model}")
+                pprint(result)
+        return True
 
 
 if __name__ == "__main__":
@@ -220,8 +288,10 @@ if __name__ == "__main__":
         "support_customers": odoo.get_support_customers,
         "list": odoo.search_list,
         "show": odoo.show,
+        "dump": odoo.dump,
         "reinit": odoo.reinit,
         "mail-add": odoo.mail_add,
+        "config-dump": odoo.config_dump,
     }
 
     if args.command in method_map:
