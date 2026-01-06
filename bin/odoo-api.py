@@ -29,21 +29,25 @@ def getArgparser():
         "--url", default="https://bareos.odoo.com", help="URL of odoo server"
     )
     argparser.add_argument("--database", "--db", help="odoo database")
-    argparser.add_argument(
-        "--db_name_endpoint_token", help="secret key to get odoos database name"
-    )
+    # argparser.add_argument(
+    #     "--db_name_endpoint_token", help="secret key to get odoos database name"
+    # )
     argparser.add_argument("--apikey", required=True, help="odoo api key")
+    
+    model_argument_kw = {
+        "help": "Odoo model, e.g. res.users, res.partner, crm.lead, ..."
+    }
 
     subparsers = argparser.add_subparsers(dest="command")
     identity = subparsers.add_parser("identity")
     databases = subparsers.add_parser("databases")
     search_list = subparsers.add_parser("list")
-    search_list.add_argument("model")
+    search_list.add_argument("model", **model_argument_kw)
     show = subparsers.add_parser("show")
-    show.add_argument("model")
+    show.add_argument("model", **model_argument_kw)
     show.add_argument("id")
     reinit = subparsers.add_parser("reinit")
-    reinit.add_argument("model")
+    reinit.add_argument("model", **model_argument_kw)
     get_customers = subparsers.add_parser("customers")
     get_active_subscriptions = subparsers.add_parser("active_subscriptions")
     get_subscription_credentials = subparsers.add_parser("subscription_credentials")
@@ -54,13 +58,13 @@ def getArgparser():
     return argparser
 
 
-def get_db_name(baseurl, token):
-    response = requests.get(
-        baseurl + "/.well-known/odoo-db", headers={"X-DB-TOKEN": token}, timeout=5
-    )
-    response.raise_for_status()
-    dbname = response.json()["dbname"]
-    return dbname
+# def get_db_name(baseurl, token):
+#     response = requests.get(
+#         baseurl + "/.well-known/odoo-db", headers={"X-DB-TOKEN": token}, timeout=5
+#     )
+#     response.raise_for_status()
+#     dbname = response.json()["dbname"]
+#     return dbname
 
 
 class odoo_api:
@@ -200,10 +204,10 @@ if __name__ == "__main__":
     #     )
 
     database = args.database
-    if not database and args.db_name_endpoint_token:
-        logger.debug("try to detect database")
-        database = get_db_name(args.url, args.db_name_endpoint_token)
-        logger.debug(f"using database: {database}")
+    # if not database and args.db_name_endpoint_token:
+    #     logger.debug("try to detect database")
+    #     database = get_db_name(args.url, args.db_name_endpoint_token)
+    #     logger.debug(f"using database: {database}")
 
     odoo = odoo_api(args.url, args.apikey, database)
 
