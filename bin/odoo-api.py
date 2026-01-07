@@ -237,10 +237,26 @@ class odoo_api:
             "ir.config_parameter",
             # company
             "res.company",
+            "res.lang",
+            # res.partner:
+            #   maybe interesting,
+            #   but fields needs to be reduced.
+            # "res.partner",
+            "res.partner.category",
+            "account.account",
+            "account.journal",
+            "product.category",
+            "product.product",
+            # "product.template",
+            "product.pricelist",
+            "product.pricelist.item",
+            "sale.order.template",
+            "sale.subscription.plan",
             # user config
             "res.users",
             "res.users.settings",
             "res.users.apikeys",
+            # "res.users.log",
             # empty and should never contain usable data.
             # "res.config.settings",
             # "res.device",

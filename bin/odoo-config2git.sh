@@ -27,6 +27,7 @@ dump2git()
   fi
   $GIT branch $INSTANCE 2>/dev/null || true
   $GIT checkout $INSTANCE
+  $GIT reset --hard origin/$INSTANCE
   rm ${TARGET_DIR}/*
   ${SCRIPT_DIR}/odoo-api.py -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR} --json
   $GIT add --all
@@ -35,6 +36,7 @@ dump2git()
   fi
 }
 
+$GIT fetch origin
 for i in $ODOOS; do
   dump2git "$i"
 done
