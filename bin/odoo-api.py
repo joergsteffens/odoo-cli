@@ -11,6 +11,7 @@ try:
     import configargparse as argparse
 except ImportError:
     import argparse
+from argparse import BooleanOptionalAction
 
 
 def type_directory(path):
@@ -48,21 +49,38 @@ def getArgparser():
     }
 
     subparsers = argparser.add_subparsers(dest="command")
+
     identity = subparsers.add_parser("identity")
+
     databases = subparsers.add_parser("databases")
+
     search_list = subparsers.add_parser("list")
     search_list.add_argument("model", **model_argument_kw)
+
     show = subparsers.add_parser("show")
     show.add_argument("model", **model_argument_kw)
     show.add_argument("id")
+
     dump = subparsers.add_parser("dump")
     dump.add_argument("model", **model_argument_kw)
+
     reinit = subparsers.add_parser("reinit")
     reinit.add_argument("model", **model_argument_kw)
+
     get_customers = subparsers.add_parser("customers")
+
     get_active_subscriptions = subparsers.add_parser("active_subscriptions")
+
     get_subscription_credentials = subparsers.add_parser("subscription_credentials")
+    get_subscription_credentials.add_argument(
+        "--evaluation",
+        action=BooleanOptionalAction,
+        help="Credentials only for evaluation subscriptions or without evaluation subscriptions (default: both)",
+        default=None,
+    )
+
     get_support_customers = subparsers.add_parser("support_customers")
+
     mail_add = subparsers.add_parser("mail-add")
     mail_add.add_argument(
         "--model",
@@ -74,6 +92,7 @@ def getArgparser():
         type=argparse.FileType("r"),
         help="File containing a full email (extension is often .eml). Use '-' to stdin.",
     )
+
     config = subparsers.add_parser("config-dump")
     config.add_argument(
         "-o",
@@ -87,6 +106,7 @@ def getArgparser():
         action="store_true",
         help="Output in JSON format.",
     )
+
     return argparser
 
 
@@ -164,7 +184,11 @@ class odoo_api:
         return self.json2("res.partner", "get_active_subscriptions_api")
 
     def get_subscription_credentials(self, args):
-        return self.json2("res.partner", "get_subscription_credentials_api")
+        return self.json2(
+            "res.partner",
+            "get_subscription_credentials_api",
+            evaluation=args.evaluation,
+        )
 
     def get_support_customers(self, args):
         return self.json2(
