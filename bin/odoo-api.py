@@ -276,6 +276,7 @@ class odoo_api:
             "product.pricelist.item",
             "sale.order.template",
             "sale.subscription.plan",
+            "mail.template",
             # user config
             "res.users",
             "res.users.settings",
