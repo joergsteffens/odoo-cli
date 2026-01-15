@@ -255,6 +255,20 @@ class odoo_api:
             message=message,
         )
 
+    def _cleanup_dump_data(self, model, data):
+        # reduce noise (unnecessary changes)
+        if model == "account.journal":
+            # remove key kanban_dashboard_graph, as this chances on every run.
+            for entry in data:
+                entry.pop("kanban_dashboard_graph", None)
+        elif model == "res.users":
+            for entry in data:
+                if "fiscal_country_group_codes" in entry:
+                    entry["fiscal_country_group_codes"] = sorted(
+                        entry["fiscal_country_group_codes"]
+                    )
+        return data
+
     def config_dump(self, args):
         models = [
             # system parameter
@@ -289,7 +303,8 @@ class odoo_api:
         ]
         for model in models:
             order = "id ASC"
-            result = self._dump(model, order=order)
+            data = self._dump(model, order=order)
+            result = self._cleanup_dump_data(model, data)
             if args.output_directory:
                 filename = model + ".json"
                 path = args.output_directory / filename
