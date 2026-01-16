@@ -273,6 +273,7 @@ class odoo_api:
         models = [
             # system parameter
             "ir.config_parameter",
+            "ir.module.module",
             # company
             "res.company",
             "res.lang",
@@ -302,8 +303,12 @@ class odoo_api:
             # "res.device.log",
         ]
         for model in models:
+            domain = None
+            if model == "ir.module.module":
+                # only list installed modules
+                domain =  [["state","=","installed"]]
             order = "id ASC"
-            data = self._dump(model, order=order)
+            data = self._dump(model, domain=domain, order=order)
             result = self._cleanup_dump_data(model, data)
             if args.output_directory:
                 filename = model + ".json"
