@@ -11,7 +11,6 @@ try:
     import configargparse as argparse
 except ImportError:
     import argparse
-from argparse import BooleanOptionalAction
 
 
 def type_directory(path):
@@ -39,9 +38,6 @@ def getArgparser():
         "--url", default="https://bareos.odoo.com", help="URL of odoo server"
     )
     argparser.add_argument("--database", "--db", help="odoo database")
-    # argparser.add_argument(
-    #     "--db_name_endpoint_token", help="secret key to get odoos database name"
-    # )
     argparser.add_argument("--apikey", required=True, help="odoo api key")
 
     model_argument_kw = {
@@ -72,10 +68,23 @@ def getArgparser():
     get_active_subscriptions = subparsers.add_parser("active_subscriptions")
 
     get_subscription_credentials = subparsers.add_parser("subscription_credentials")
-    get_subscription_credentials.add_argument(
+
+    # use this instead of action=BooleanOptionalAction,
+    # as it also has to work with Python 3.6 (support.bareos.com, vtiger)
+    get_subscription_credentials_evaluation = (
+        get_subscription_credentials.add_mutually_exclusive_group()
+    )
+    get_subscription_credentials_evaluation.add_argument(
         "--evaluation",
-        action=BooleanOptionalAction,
-        help="Credentials only for evaluation subscriptions or without evaluation subscriptions (default: both)",
+        action="store_true",
+        help="Credentials only for evaluation subscriptions (default: both)",
+        default=None,
+    )
+    get_subscription_credentials_evaluation.add_argument(
+        "--no-evaluation",
+        action="store_false",
+        dest="evaluation",
+        help="Credentials only for normal subscriptions (without evaluation subscriptions)",
         default=None,
     )
 
@@ -108,15 +117,6 @@ def getArgparser():
     )
 
     return argparser
-
-
-# def get_db_name(baseurl, token):
-#     response = requests.get(
-#         baseurl + "/.well-known/odoo-db", headers={"X-DB-TOKEN": token}, timeout=5
-#     )
-#     response.raise_for_status()
-#     dbname = response.json()["dbname"]
-#     return dbname
 
 
 class odoo_api:
@@ -306,7 +306,7 @@ class odoo_api:
             domain = None
             if model == "ir.module.module":
                 # only list installed modules
-                domain =  [["state","=","installed"]]
+                domain = [["state", "=", "installed"]]
             order = "id ASC"
             data = self._dump(model, domain=domain, order=order)
             result = self._cleanup_dump_data(model, data)
