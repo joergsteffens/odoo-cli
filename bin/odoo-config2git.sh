@@ -20,7 +20,7 @@ error()
 dump2git()
 {
   INSTANCE="$1"
-  CONFIGFILE="${SCRIPT_DIR}/odoo-api-$INSTANCE.conf"
+  CONFIGFILE="${SCRIPT_DIR}/odoo_api-$INSTANCE.conf"
   if ! [ -r "$CONFIGFILE" ]; then
     error "failed to read config file '$CONFIGFILE' for instance '$INSTANCE'"
     exit 1
@@ -29,7 +29,7 @@ dump2git()
   $GIT checkout $INSTANCE
   $GIT reset --hard origin/$INSTANCE
   rm ${TARGET_DIR}/*
-  ${SCRIPT_DIR}/odoo-api.py -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR} --json
+  ${SCRIPT_DIR}/odoo_api.py -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR} --json
   $GIT add --all
   if $GIT commit -m "auto-update" --no-gpg-sign; then
     $GIT push -u origin $INSTANCE
