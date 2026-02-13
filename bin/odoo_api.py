@@ -13,6 +13,14 @@ except ImportError:
     import argparse
 
 
+class ParseKwargs(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, dict())
+        for value in values:
+            key, val = value.split("=")
+            getattr(namespace, self.dest)[key] = val
+
+
 def type_directory(path):
     directory = Path(path)
     if not directory.is_dir():
@@ -46,22 +54,38 @@ def getArgparser():
 
     subparsers = argparser.add_subparsers(dest="command")
 
-    identity = subparsers.add_parser("identity")
+    identity = subparsers.add_parser("identity", help="Who am I?")
 
-    databases = subparsers.add_parser("databases")
+    databases = subparsers.add_parser("databases", help="Show available databases.")
 
-    search_list = subparsers.add_parser("list")
+    search_list = subparsers.add_parser("list", help="List objects of a resource.")
     search_list.add_argument("model", **model_argument_kw)
 
-    show = subparsers.add_parser("show")
+    show = subparsers.add_parser("show", help="Show a single odoo object.")
     show.add_argument("model", **model_argument_kw)
     show.add_argument("id")
 
-    dump = subparsers.add_parser("dump")
+    dump = subparsers.add_parser("dump", help="Dump a resource.")
     dump.add_argument("model", **model_argument_kw)
 
-    reinit = subparsers.add_parser("reinit")
+    reinit = subparsers.add_parser(
+        "reinit", help="Let odoo recalculate some internal fields."
+    )
     reinit.add_argument("model", **model_argument_kw)
+
+    create = subparsers.add_parser(
+        "create",
+        help="Create new odoo objects.",
+        description='Example: odoo_api.py create res.partner --args name="Example User" email="example.user@example.com"',
+    )
+    create.add_argument("model", **model_argument_kw)
+    create.add_argument(
+        "--args",
+        nargs="+",
+        action=ParseKwargs,
+        metavar="key=value",
+        help="Parameter for the create command, as key-value pairs.",
+    )
 
     get_customers = subparsers.add_parser("customers")
 
@@ -90,7 +114,9 @@ def getArgparser():
 
     get_support_customers = subparsers.add_parser("support_customers")
 
-    mail_add = subparsers.add_parser("mail-add")
+    mail_add = subparsers.add_parser(
+        "mail-add", help="Import an email (as file)  into odoo."
+    )
     mail_add.add_argument(
         "--model",
         help="Odoo model, into which the emails get processed, e.g. 'crm.lead'. (default: %(default)s)",
@@ -102,7 +128,9 @@ def getArgparser():
         help="File containing a full email (extension is often .eml). Use '-' to stdin.",
     )
 
-    config = subparsers.add_parser("config-dump")
+    config = subparsers.add_parser(
+        "config-dump", help="Dump (parts of) the odoo configuration/data."
+    )
     config.add_argument(
         "-o",
         "--output-directory",
@@ -245,6 +273,12 @@ class odoo_api:
             "recompute_fields",
         )
 
+    def create(self, args):
+        model = args.model
+        vals_list = [args.args]
+        self.logger.debug(f"{model}/create(vals_list={vals_list})")
+        return self.json2(model, "create", vals_list=vals_list)
+
     def mail_add(self, args):
         model = args.model
         message = args.email.read()
@@ -301,6 +335,8 @@ class odoo_api:
             # "res.config.settings",
             # "res.device",
             # "res.device.log",
+            # currently not installed:
+            # "auditlog.rule",
         ]
         for model in models:
             domain = None
@@ -308,24 +344,27 @@ class odoo_api:
                 # only list installed modules
                 domain = [["state", "=", "installed"]]
             order = "id ASC"
-            data = self._dump(model, domain=domain, order=order)
-            result = self._cleanup_dump_data(model, data)
-            if args.output_directory:
-                filename = model + ".json"
-                path = args.output_directory / filename
-                self.logger.info(f"path={path}")
-                with path.open("w") as f:
-                    if args.json:
-                        f.write(json.dumps(result, indent=4))
-                    else:
-                        f.write(pformat(result))
-
+            try:
+                data = self._dump(model, domain=domain, order=order)
+            except requests.exceptions.HTTPError as exp:
+                self.logger.error(f"{model}: failed: {exp}")
             else:
-                print(f"### {model}")
-                if args.json:
-                    print(json.dumps(result, indent=4))
+                result = self._cleanup_dump_data(model, data)
+                if args.output_directory:
+                    filename = model + ".json"
+                    path = args.output_directory / filename
+                    self.logger.info(f"path={path}")
+                    with path.open("w") as f:
+                        if args.json:
+                            f.write(json.dumps(result, indent=4))
+                        else:
+                            f.write(pformat(result))
                 else:
-                    pprint(result)
+                    print(f"### {model}")
+                    if args.json:
+                        print(json.dumps(result, indent=4))
+                    else:
+                        pprint(result)
 
         return True
 
@@ -365,6 +404,7 @@ if __name__ == "__main__":
         "show": odoo.show,
         "dump": odoo.dump,
         "reinit": odoo.reinit,
+        "create": odoo.create,
         "mail-add": odoo.mail_add,
         "config-dump": odoo.config_dump,
     }
