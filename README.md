@@ -6,17 +6,31 @@ A Python command-line tool for calling Odoo's External JSON-2 API methods (Odoo 
 
 `odoo-cli` is a flexible tool that allows you to call `@api.model` decorated method in Odoo 19+ through the External JSON-2 API.
 
+## Motivation
+
+I created `odoo-cli` to make my life with odoo easier.
+The Odoo API has improved alot with the introduction of the new JSON-2 API in Odoo 19.
+However, at the time of writing this tool,
+documentation on it has been sparse and error-prune.
+This tool can be used by others either to better understand the JSON-2 API
+or to even extend this tool.
+Beneath other things, I also used it to test the API for https://addons.thunderbird.net/thunderbird/addon/odoo-email-importer/
+
+
+
 ## ✨ Features
 
 - 🔌 **Call API Method** - Invoke any `@api.model` decorated method on Odoo models
-- 🚀 **JSON-2 API Support** - Native support for Odoo's new External JSON-2 API
+- 🚀 **JSON-2 API Support** - Native support for Odoo's JSON-2 API (introduced in Odoo 19)
 - 📦 **Lightweight** - Minimal dependencies
 - 🔧 **Extensible** - Easy to add custom method wrappers
+- 
 
 ## 📋 Requirements
 
 - Python 3.6+
-- Odoo 19 or higher with External JSON-2 API enabled
+- optional: https://pypi.org/project/ConfigArgParse/
+- Odoo 19 or higher (for JSON-2 API)
 - Valid Odoo API key
 
 ## 🚀 Installation
@@ -38,6 +52,12 @@ url = https://your-instance.odoo.com
 api_key = your_api_key_here
 database = your_database_name (optional)
 ```
+
+Database is normally not required.
+It is only required, if you running multiple databases on the same Odoo host.
+
+If `ConfigArgParse` is available, this configuration can be provided on a ini config file by `--config <configfile.cfg>`.
+Otherwise `--url`, `--apikey` and optionally `--database` must be provided as command line parameter.
 
 ### Getting an API Key
 
