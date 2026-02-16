@@ -213,13 +213,19 @@ You can also use the underlying client as a Python library:
 from odoo_api import OdooApi
 
 client = OdooApi(
-    url='https://your-instance.odoo.com',
-    api_key='your_api_key',
-    database='your_database'
+    url="https://your-instance.odoo.com",
+    api_key="your_api_key",
+    database="your_database",
 )
 
 # Call any method
-result = client.call('res.partner', 'search_read', domain=[['is_company', '=', True]], fields=['name', 'email'], limit=10)
+result = client.call(
+    "res.partner",
+    "search_read",
+    domain=[["is_company", "=", True]],
+    fields=["name", "email"],
+    limit=10,
+)
 ```
 
 ## 🛠️ Extending the Tool
