@@ -81,11 +81,8 @@ odoo-cli call res.partner create --json '{
 # Call write (update)
 odoo-cli call res.partner write --json '{
   "ids": [123],
-  "values": {"phone": "+49 123 456789"}
+  "vals": {"phone": "+49 123 456789"}
 }'
-
-# Call custom methods
-odoo-cli sale.order action_confirm --params '{"ids": [456]}'
 ```
 
 ### Common Methods
@@ -94,8 +91,7 @@ While the tool can call any `@api` method, these are commonly used:
 
 #### search_read
 ```bash
-odoo-cli res.partner search_read --params '{
-  "domain": [],
+odoo-cli call res.partner search_read --json '{
   "fields": ["name", "email", "phone"],
   "limit": 5
 }'
@@ -103,14 +99,14 @@ odoo-cli res.partner search_read --params '{
 
 #### search
 ```bash
-odoo-cli res.partner search --params '{
+odoo-cli call res.partner search --json '{
   "domain": [["customer_rank", ">", 0]]
 }'
 ```
 
 #### read
 ```bash
-odoo-cli res.partner read --params '{
+odoo-cli call res.partner read --json '{
   "ids": [1, 2, 3],
   "fields": ["name", "email"]
 }'
@@ -118,11 +114,13 @@ odoo-cli res.partner read --params '{
 
 #### create
 ```bash
-odoo-cli res.partner create --params '{
-  "values": {
-    "name": "John Doe",
-    "email": "john@example.com"
-  }
+odoo-cli call res.partner create --json '{
+  "vals_list": [
+    {
+        "name": "New Company 1",
+        "email": "info@example1.com"
+    }
+  ]
 }'
 ```
 
