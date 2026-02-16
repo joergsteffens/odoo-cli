@@ -27,8 +27,7 @@ https://addons.thunderbird.net/thunderbird/addon/odoo-email-importer/
 - 🚀 **JSON-2 API Support** - Native support for Odoo's JSON-2 API (introduced in Odoo 19)
 - 📦 **Lightweight** - Minimal dependencies
 - 🔧 **Extensible** - Easy to add custom method wrappers
-- Includes useful subcommands such as importing an email into Odoo or exporting configuration to a directory.
-
+- 🔧 **Subcommands** - Includes useful subcommands such as importing an email into Odoo or exporting configuration to a directory.
 
 ## 📋 Requirements
 
@@ -85,7 +84,7 @@ The core functionality is calling any `@api` method:
 
 ```bash
 # Generic syntax
-odoo-cli call <model> <method> [--json '{"key": "value"}']
+odoo-cli call <model> <method> [--json '{"key": "value"}'] [--args key1=value2 key2=value2 ...]
 
 # Call search_read (most common)
 odoo-cli call res.partner search_read --json '{
@@ -199,8 +198,10 @@ POST /json/2/<model>/<method>
 (depending on access rights and method exposure)
 
 **Authentication:**
+
+Authentication is done via the API-Key in an additional header:
 ```
-Api-Key: your_api_key_here
+"Authorization": "bearer <your_api_key_here>",
 ```
 
 Any method decorated with `@api.model` or similar decorators in Odoo can be called through this endpoint.
