@@ -4,27 +4,31 @@ A Python command-line tool for calling Odoo's External JSON-2 API methods (Odoo 
 
 ## 🎯 Overview
 
-`odoo-cli` is a flexible tool that allows you to call `@api.model` decorated method in Odoo 19+ through the External JSON-2 API.
+`odoo-cli` is a command-line tool for calling Odoo model methods exposed via the JSON-2 API.
+It provides a fast and scriptable way to invoke server-side logic without writing custom integration code.
+
+The included Python client can be reused independently of the CLI,
+enabling seamless integration into scripts, services, and automation workflows.
+
 
 ## Motivation
 
-I created `odoo-cli` to make my life with odoo easier.
-The Odoo API has improved alot with the introduction of the new JSON-2 API in Odoo 19.
-However, at the time of writing this tool,
-documentation on it has been sparse and error-prune.
-This tool can be used by others either to better understand the JSON-2 API
-or to even extend this tool.
-Beneath other things, I also used it to test the API for https://addons.thunderbird.net/thunderbird/addon/odoo-email-importer/
+Many Odoo tasks are still performed interactively in the UI, which makes them harder to reproduce, automate, and test. This project provides a small, scriptable interface to execute model methods remotely, so recurring operations can be run in a controlled and repeatable way from the command line or from Python code.
 
+Besides being directly useful as a CLI tool, the project also serves as a minimal, working reference implementation of an Odoo JSON-2 client. Developers can reuse the included Python class or use the code as a starting point for their own integrations and automation tools.
+
+It was also used during development and testing of the Thunderbird add-on:
+https://addons.thunderbird.net/thunderbird/addon/odoo-email-importer/
 
 
 ## ✨ Features
 
-- 🔌 **Call API Method** - Invoke any `@api.model` decorated method on Odoo models
+- 🔌 **Call model methods** - Invoke Odoo model methods exposed via the JSON-2 API
 - 🚀 **JSON-2 API Support** - Native support for Odoo's JSON-2 API (introduced in Odoo 19)
 - 📦 **Lightweight** - Minimal dependencies
 - 🔧 **Extensible** - Easy to add custom method wrappers
-- 
+- Includes useful subcommands such as importing an email into Odoo or exporting configuration to a directory.
+
 
 ## 📋 Requirements
 
@@ -42,6 +46,12 @@ git clone https://github.com/joergsteffens/odoo-cli.git
 sudo ln -s $(pwd)/bin/odoo-cli /usr/local/bin/odoo-cli
 ```
 
+## ⚡ Quickstart
+
+```bash
+odoo-cli --url https://your-instance.odoo.com --apikey your_api_key call res.partner search_read --args limit=3
+```
+
 ## ⚙️ Configuration
 
 Create a configuration file with your Odoo instance details:
@@ -49,12 +59,12 @@ Create a configuration file with your Odoo instance details:
 ```ini
 [default]
 url = https://your-instance.odoo.com
-api_key = your_api_key_here
+apikey = your_api_key_here
 database = your_database_name (optional)
 ```
 
 Database is normally not required.
-It is only required, if you running multiple databases on the same Odoo host.
+It is only required, if you are running multiple databases on the same Odoo host.
 
 If `ConfigArgParse` is available, this configuration can be provided on a ini config file by `--config <configfile.cfg>`.
 Otherwise `--url`, `--apikey` and optionally `--database` must be provided as command line parameter.
@@ -158,7 +168,17 @@ odoo-cli call res.partner unlink --json '{
 
 ### Custom Environment Methods
 
-⚠️ **Note**: Custom methods in this repository may not work in your Odoo instance. They are provided as examples for implementing your own custom workflows.
+⚠️ **Note**: Custom methods in this repository may not work in your Odoo instance.
+They are provided as examples for implementing your own custom workflows.
+
+### Useful Extensions/Subcommands
+
+- **list**                List objects of a resource.
+- **show**                Show a single odoo object.
+- **dump**                Dump a resource.
+- **create**              Create a new odoo object.
+- **mail-add**            Import an email (as file) into odoo.
+- **config-dump**         Dump (parts of) the odoo configuration/data.
 
 ## 🔌 How It Works
 
@@ -175,6 +195,8 @@ POST /json/2/<model>/<method>
     "param2": "value2"
 }
 ```
+
+(depending on access rights and method exposure)
 
 **Authentication:**
 ```
@@ -197,8 +219,7 @@ client = OdooApi(
 )
 
 # Call any method
-result = client.call('res.partner', 'search_read', domain= [['is_company', '=', True]], fields = ['name', 'email'], 'limit' = 10)
-})
+result = client.call('res.partner', 'search_read', domain=[['is_company', '=', True]], fields=['name', 'email'], limit=10)
 ```
 
 ## 🛠️ Extending the Tool
