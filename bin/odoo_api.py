@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 
 import logging
-import requests
+import inspect
 import json
 import sys
 from pathlib import Path
 from pprint import pprint, pformat
+
+import requests
 
 try:
     import configargparse as argparse
@@ -15,10 +17,28 @@ except ImportError:
 
 class ParseKwargs(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, dict())
+        setattr(namespace, self.dest, {})
         for value in values:
             key, val = value.split("=")
             getattr(namespace, self.dest)[key] = val
+
+
+def parse_json_input(value):
+    """Parse JSON from string, file, or stdin"""
+    if value == "-":
+        # Read from stdin
+        return json.load(sys.stdin)
+
+    # Check if it's a file
+    if Path(value).is_file():
+        with open(value, "r") as f:
+            return json.load(f)
+
+    # Parse as JSON string
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as e:
+        raise argparse.ArgumentTypeError(f"Invalid JSON: {e}")
 
 
 def type_directory(path):
@@ -28,7 +48,7 @@ def type_directory(path):
     return directory
 
 
-def getArgparser():
+def get_argparser():
     argparser = argparse.ArgumentParser(
         description="odoo api.", formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
@@ -73,10 +93,15 @@ def getArgparser():
     )
     reinit.add_argument("model", **model_argument_kw)
 
+    create_description = """
+    Example:
+    %(prog)s res.partner --args name="Example User" email="example.user@example.com"
+    """
     create = subparsers.add_parser(
         "create",
-        help="Create new odoo objects.",
-        description='Example: odoo_api.py create res.partner --args name="Example User" email="example.user@example.com"',
+        help="Create a new odoo object.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=create_description,
     )
     create.add_argument("model", **model_argument_kw)
     create.add_argument(
@@ -87,11 +112,18 @@ def getArgparser():
         help="Parameter for the create command, as key-value pairs.",
     )
 
-    get_customers = subparsers.add_parser("customers")
+    get_customers = subparsers.add_parser(
+        "customers", help="List all current customers."
+    )
 
-    get_active_subscriptions = subparsers.add_parser("active_subscriptions")
+    get_active_subscriptions = subparsers.add_parser(
+        "active_subscriptions", help="List all active subscriptions."
+    )
 
-    get_subscription_credentials = subparsers.add_parser("subscription_credentials")
+    get_subscription_credentials = subparsers.add_parser(
+        "subscription_credentials",
+        help="Show current credentials of active subscriptions.",
+    )
 
     # use this instead of action=BooleanOptionalAction,
     # as it also has to work with Python 3.6 (support.bareos.com, vtiger)
@@ -112,7 +144,9 @@ def getArgparser():
         default=None,
     )
 
-    get_support_customers = subparsers.add_parser("support_customers")
+    get_support_customers = subparsers.add_parser(
+        "support_customers", help="Show all customers with active support contract."
+    )
 
     mail_add = subparsers.add_parser(
         "mail-add", help="Import an email (as file)  into odoo."
@@ -144,63 +178,87 @@ def getArgparser():
         help="Output in JSON format.",
     )
 
+    raw_description = """
+    Examples:
+    # simple, without parameter:
+    %(prog)s res.users context_get
+    # with json parameter:
+    %(prog)s res.partner search_read --json \'{ "fields": ["id", "name", "display_name"], "order": "id ASC" }\'
+    # with mixed json and direct paramter:
+    %(prog)s res.partner search_read --json \'{ "fields": ["id", "name", "display_name"] }\' --args order="id ASC"
+    # with search domain:
+    %(prog)s res.partner search_read --json \'{ "domain": [["name", "ilike", "B%%"]], "fields": ["id", "name", "display_name"], "order": "id ASC" }\'
+    """
+    raw = subparsers.add_parser(
+        "call",
+        help="Generic call.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=raw_description,
+    )
+    raw.add_argument("model", **model_argument_kw)
+    raw.add_argument("method", help="Odoo @api.model method to be called.")
+    raw.add_argument(
+        "--json", type=parse_json_input, help='JSON string, file path, or "-" for stdin'
+    )
+    raw.add_argument(
+        "--args",
+        nargs="+",
+        action=ParseKwargs,
+        metavar="key=value",
+        help="Parameter for the method, additional to the JSON structue, as key-value pairs.",
+    )
+
     return argparser
 
 
-class odoo_api:
-    def __init__(self, baseurl, api_key, db=None):
+class OdooApi:
+    def __init__(self, url, api_key, db=None):
         self.logger = logging.getLogger()
-        self.baseurl = baseurl
-        self.apiurl = baseurl + "/json/2"
+        self.baseurl = url
+        self.apiurl = url + "/json/2"
         self.api_key = api_key
         self.db = db
         self.headers = {
-            "User-Agent": "odoo-api " + requests.utils.default_user_agent(),
+            "User-Agent": "odoo_api " + requests.utils.default_user_agent(),
             "Authorization": f"bearer {self.api_key}",
         }
         if self.db:
             self.headers["X-Odoo-Database"] = self.db
 
-    def call(self, baseurl, odoo_model, odoo_method, *args, **kwargs):
-        # AFAIK, the odoo json2 API uses named parameter,
-        # not no args without name.
-        # Still, keep args as parameter for completeness.
-        if args:
-            raise RuntimeError(f"args given ({args}), but not expected.")
-
+    def _call(self, url, odoo_model, odoo_method, **kwargs):
         data = {}
         if kwargs:
             data = kwargs.copy()
 
         response = requests.post(
-            f"{baseurl}/{odoo_model}/{odoo_method}",
+            f"{url}/{odoo_model}/{odoo_method}",
             headers=self.headers,
             json=data,
         )
         response.raise_for_status()
         return response.json()
 
-    def json2(self, odoo_model, odoo_method, **kwargs):
-        return self.call(self.apiurl, odoo_model, odoo_method, **kwargs)
+    def call(self, odoo_model, odoo_method, **kwargs):
+        return self._call(self.apiurl, odoo_model, odoo_method, **kwargs)
 
-    def get_version(self, args):
+    def get_version(self):
         # does not work, neither as json2, nor as direct call.
-        return self.json2(
+        return self.call(
             "web",
             "version",
         )
 
-    def get_databases(self, args):
+    def get_databases(self):
         # does not require authentication.
         # call returns a jsonrpc dict. We only care about result.
-        return self.call(self.baseurl, "web", "database/list")["result"]
+        return self._call(self.baseurl, "web", "database/list")["result"]
 
-    def get_user_context(self, args):
-        return self.json2("res.users", "context_get")
+    def get_user_context(self):
+        return self.call("res.users", "context_get")
         # show res.users 2 -> "display_name"
 
-    def get_customers(self, args):
-        return self.json2(
+    def get_customers(self):
+        return self.call(
             "res.partner",
             "search_read",
             domain=[["customer_rank", ">", 0]],
@@ -208,18 +266,18 @@ class odoo_api:
             limit=10,
         )
 
-    def get_active_subscriptions(self, args):
-        return self.json2("res.partner", "get_active_subscriptions_api")
+    def get_active_subscriptions(self):
+        return self.call("res.partner", "get_active_subscriptions_api")
 
-    def get_subscription_credentials(self, args):
-        return self.json2(
+    def get_subscription_credentials(self, evaluation=None):
+        return self.call(
             "res.partner",
             "get_subscription_credentials_api",
-            evaluation=args.evaluation,
+            evaluation=evaluation,
         )
 
-    def get_support_customers(self, args):
-        return self.json2(
+    def get_support_customers(self):
+        return self.call(
             "res.partner",
             "get_support_customers_api",
         )
@@ -229,7 +287,7 @@ class odoo_api:
             mydomain = domain
         else:
             mydomain = []
-        return self.json2(
+        return self.call(
             model,
             "search_read",
             domain=mydomain,
@@ -237,17 +295,17 @@ class odoo_api:
             order=order,
         )
 
-    def search_list(self, args):
+    def search_list(self, model):
         return self._dump(
-            args.model,
+            model,
             fields=["id", "name", "display_name"],
             order="id ASC",
         )
 
-    def dump(self, args):
-        return self._dump(args.model)
+    def dump(self, model):
+        return self._dump(model)
 
-    def show(self, args):
+    def show(self, model, id, verbose):
         # not working:
         # return self.execute_kw(
         #     args.model,
@@ -256,33 +314,31 @@ class odoo_api:
         #     #{"fields": ["name"]},
         # )
         result = self._dump(
-            args.model,
-            domain=[["id", "=", args.id]],
+            model,
+            domain=[["id", "=", id]],
         )
 
-        if args.verbose:
+        if verbose:
             return result
         return [
             {k: v for k, v in record.items() if v not in ("", [], None, 0, 0.0)}
             for record in result
         ]
 
-    def reinit(self, args):
-        return self.json2(
-            args.model,
+    def reinit(self, model):
+        return self.call(
+            model,
             "recompute_fields",
         )
 
-    def create(self, args):
-        model = args.model
-        vals_list = [args.args]
-        self.logger.debug(f"{model}/create(vals_list={vals_list})")
-        return self.json2(model, "create", vals_list=vals_list)
+    def create(self, model, args):
+        vals_list = [args]
+        self.logger.debug("%s/create(vals_list=%s)", model, str(vals_list))
+        return self.call(model, "create", vals_list=vals_list)
 
-    def mail_add(self, args):
-        model = args.model
-        message = args.email.read()
-        return self.json2(
+    def mail_add(self, model, email):
+        message = email.read()
+        return self.call(
             "mail.thread",
             "message_process",
             model=model,
@@ -346,14 +402,14 @@ class odoo_api:
             order = "id ASC"
             try:
                 data = self._dump(model, domain=domain, order=order)
-            except requests.exceptions.HTTPError as exp:
-                self.logger.error(f"{model}: failed: {exp}")
+            except requests.exceptions.HTTPError as exc:
+                self.logger.error("%s: failed: %s", model, str(exc))
             else:
                 result = self._cleanup_dump_data(model, data)
                 if args.output_directory:
                     filename = model + ".json"
                     path = args.output_directory / filename
-                    self.logger.info(f"path={path}")
+                    self.logger.info("path=%s", str(path))
                     with path.open("w") as f:
                         if args.json:
                             f.write(json.dumps(result, indent=4))
@@ -365,8 +421,25 @@ class odoo_api:
                         print(json.dumps(result, indent=4))
                     else:
                         pprint(result)
-
         return True
+
+    def raw(self, model, method, json=None, args=None):
+        kwargs = {}
+        if json:
+            kwargs.update(json)
+        if args:
+            # args can overwrite json parameter.
+            kwargs.update(args)
+        self.logger.debug("%s/%s(%s)", model, method, str(kwargs))
+        return self.call(model, method, **kwargs)
+
+
+def cli_wrapper(method, args):
+    sig = inspect.signature(method)
+    kwargs = {
+        k: v for k, v in vars(args).items() if k in sig.parameters and v is not None
+    }
+    return method(**kwargs)
 
 
 if __name__ == "__main__":
@@ -375,23 +448,13 @@ if __name__ == "__main__":
     )
     logger = logging.getLogger()
 
-    parser = getArgparser()
+    parser = get_argparser()
     args = parser.parse_args()
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    # if (not args.database) and (not args.db_name_endpoint_token):
-    #     parser.error(
-    #         "At least one of --database or --db_name_endpoint_token is required"
-    #     )
-
     database = args.database
-    # if not database and args.db_name_endpoint_token:
-    #     logger.debug("try to detect database")
-    #     database = get_db_name(args.url, args.db_name_endpoint_token)
-    #     logger.debug(f"using database: {database}")
-
-    odoo = odoo_api(args.url, args.apikey, database)
+    odoo = OdooApi(args.url, args.apikey, database)
 
     method_map = {
         "identity": odoo.get_user_context,
@@ -407,12 +470,12 @@ if __name__ == "__main__":
         "create": odoo.create,
         "mail-add": odoo.mail_add,
         "config-dump": odoo.config_dump,
+        "call": odoo.raw,
     }
 
     if args.command in method_map:
-        result = method_map[args.command](args)
+        result = cli_wrapper(method_map[args.command], args)
         pprint(result)
     else:
-        # raise RuntimeError(f"unsupported command {args.command}")
         print(f"unsupported command '{args.command}'\n")
         parser.print_help()
