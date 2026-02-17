@@ -175,6 +175,7 @@ def get_argparser():
     config.add_argument(
         "--json",
         action="store_true",
+        dest="json_format",
         help="Output in JSON format.",
     )
 
@@ -359,7 +360,7 @@ class OdooApi:
                     )
         return data
 
-    def config_dump(self, args):
+    def config_dump(self, json_format=None, output_directory=None):
         models = [
             # system parameter
             "ir.config_parameter",
@@ -406,18 +407,18 @@ class OdooApi:
                 self.logger.error("%s: failed: %s", model, str(exc))
             else:
                 result = self._cleanup_dump_data(model, data)
-                if args.output_directory:
+                if output_directory:
                     filename = model + ".json"
-                    path = args.output_directory / filename
+                    path = output_directory / filename
                     self.logger.info("path=%s", str(path))
                     with path.open("w") as f:
-                        if args.json:
+                        if json_format:
                             f.write(json.dumps(result, indent=4))
                         else:
                             f.write(pformat(result))
                 else:
                     print(f"### {model}")
-                    if args.json:
+                    if json_format:
                         print(json.dumps(result, indent=4))
                     else:
                         pprint(result)
