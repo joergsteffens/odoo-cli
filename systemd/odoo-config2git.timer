@@ -1,0 +1,10 @@
+[Unit]
+Description=Run task every 60 minutes
+
+[Timer]
+OnUnitActiveSec=60min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

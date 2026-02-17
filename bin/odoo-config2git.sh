@@ -6,8 +6,9 @@ set -o pipefail
 
 #set -x
 
-ODOOS="dev-joergs-local staging production"
-TARGET_DIR="/home/joergs/git/bareos/extra/odoo-config"
+CONFIG_DIR="${HOME}/.config/odoo-cli/"
+ODOOS="staging production"
+TARGET_DIR="${HOME}/git/odoo-config"
 GIT="git -C ${TARGET_DIR}"
 LANG=C.utf8
 SCRIPT_DIR="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))"
@@ -20,7 +21,7 @@ error()
 dump2git()
 {
   INSTANCE="$1"
-  CONFIGFILE="${SCRIPT_DIR}/odoo_api-$INSTANCE.conf"
+  CONFIGFILE="${CONFIG_DIR}/$INSTANCE.conf"
   if ! [ -r "$CONFIGFILE" ]; then
     error "failed to read config file '$CONFIGFILE' for instance '$INSTANCE'"
     return 1
@@ -29,8 +30,8 @@ dump2git()
   $GIT checkout $INSTANCE
   $GIT reset --hard origin/$INSTANCE
   rm ${TARGET_DIR}/*
-  if ! ${SCRIPT_DIR}/odoo_api.py -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR} --json; then
-    error "failed to run 'odoo_api.py -c ${CONFIGFILE} config-dump'"
+  if ! ${SCRIPT_DIR}/odoo-cli -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR} --json; then
+    error "failed to run 'odoo-cli -c ${CONFIGFILE} config-dump'"
     return 1
   fi
   $GIT add --all
@@ -42,6 +43,8 @@ dump2git()
 #
 # main
 #
+test -d "${CONFIG_DIR}"
+test -d "${TARGET_DIR}"
 $GIT fetch origin
 SUCCESS=()
 FAILED=()

@@ -1,0 +1,28 @@
+# Setup odoo-config2git
+
+```
+# as root
+useradd --create-home --system odoo-config2git
+
+sudo -u odoo-config2git -i
+
+# as odoo-config2git
+ssh-keygen
+git config --global user.email "odoo-config2git@localhost"
+git config --global user.name  odoo-config2git
+mkdir git
+cd git
+git clone https://github.com/joergsteffens/odoo-cli.git
+
+# clone a odoo-config git repository
+# or create it and setup origin
+git init odoo-config
+
+mkdir -p .config/odoo-cli
+# place config there
+
+# as root
+cp -a ~odoo-config2git/git/odoo-cli/systemd/* /etc/systemd/system
+systemctl enable --now odoo-config2git.timer
+systemctl status odoo-config2git.timer
+```

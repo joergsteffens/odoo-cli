@@ -1,0 +1,7 @@
+[Unit]
+Description=run odoo-config2git.sh
+
+[Service]
+Type=oneshot
+User=odoo-config2git
+ExecStart=/home/odooconfigsync/git/odoo-cli/bin/odoo-config2git.sh
