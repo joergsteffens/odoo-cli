@@ -18,6 +18,7 @@ git clone https://github.com/joergsteffens/odoo-cli.git
 # or create it and setup origin
 git init odoo-config
 
+cd
 mkdir -p .config/odoo-cli
 # place config there
 
