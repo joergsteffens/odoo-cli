@@ -30,7 +30,7 @@ dump2git()
   $GIT checkout $INSTANCE
   $GIT reset --hard origin/$INSTANCE
   rm ${TARGET_DIR}/*
-  if ! ${SCRIPT_DIR}/odoo-cli -c ${CONFIGFILE} config-dump --output-directory ${TARGET_DIR} --json; then
+  if ! ${SCRIPT_DIR}/odoo-cli -c ${CONFIGFILE} --output-format json config-dump --output-directory ${TARGET_DIR}; then
     error "failed to run 'odoo-cli -c ${CONFIGFILE} config-dump'"
     return 1
   fi
