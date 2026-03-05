@@ -63,6 +63,12 @@ def get_argparser():
         "-v", "--verbose", action="store_true", help="verbose output"
     )
     argparser.add_argument(
+        "--output-format",
+        choices=["json", "python"],
+        default="python",
+        help="Output format: 'json' or 'python' (default: %(default)s)",
+    )
+    argparser.add_argument(
         "--url", default="https://bareos.odoo.com", help="URL of odoo server"
     )
     argparser.add_argument("--database", "--db", help="odoo database")
@@ -172,12 +178,6 @@ def get_argparser():
         metavar="DIRECTORY",
         help="Directory to store config dump files.",
     )
-    config.add_argument(
-        "--json",
-        action="store_true",
-        dest="json_format",
-        help="Output in JSON format.",
-    )
 
     raw_description = """
     Examples:
@@ -199,7 +199,10 @@ def get_argparser():
     raw.add_argument("model", **model_argument_kw)
     raw.add_argument("method", help="Odoo @api.model method to be called.")
     raw.add_argument(
-        "--json", type=parse_json_input, help='JSON string, file path, or "-" for stdin'
+        "--json",
+        type=parse_json_input,
+        help='JSON string, file path, or "-" for stdin',
+        dest="json_input",
     )
     raw.add_argument(
         "--args",
@@ -213,8 +216,11 @@ def get_argparser():
 
 
 class OdooApi:
-    def __init__(self, url, api_key, db=None):
+    def __init__(self, url, api_key, db=None, output_format=None, indent=2):
         self.logger = logging.getLogger()
+        self.output_format = output_format
+        # ident: currently only used for json
+        self.indent = indent
         self.baseurl = url
         self.apiurl = url + "/json/2"
         self.api_key = api_key
@@ -360,7 +366,7 @@ class OdooApi:
                     )
         return data
 
-    def config_dump(self, json_format=None, output_directory=None):
+    def config_dump(self, output_directory=None):
         models = [
             # system parameter
             "ir.config_parameter",
@@ -408,26 +414,28 @@ class OdooApi:
             else:
                 result = self._cleanup_dump_data(model, data)
                 if output_directory:
-                    filename = model + ".json"
+                    filename = model + ".data"
+                    if self.output_format == "json":
+                        filename = model + ".json"
                     path = output_directory / filename
                     self.logger.info("path=%s", str(path))
                     with path.open("w") as f:
-                        if json_format:
-                            f.write(json.dumps(result, indent=4))
+                        if self.output_format == "json":
+                            f.write(json.dumps(result, indent=self.indent))
                         else:
                             f.write(pformat(result))
                 else:
                     print(f"### {model}")
-                    if json_format:
-                        print(json.dumps(result, indent=4))
+                    if self.output_format == "json":
+                        print(json.dumps(result, indent=self.indent))
                     else:
                         pprint(result)
         return True
 
-    def raw(self, model, method, json=None, args=None):
+    def raw(self, model, method, json_input=None, args=None):
         kwargs = {}
-        if json:
-            kwargs.update(json)
+        if json_input:
+            kwargs.update(json_input)
         if args:
             # args can overwrite json parameter.
             kwargs.update(args)
@@ -454,8 +462,14 @@ if __name__ == "__main__":
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    database = args.database
-    odoo = OdooApi(args.url, args.apikey, database)
+    indent = 2
+    odoo = OdooApi(
+        args.url,
+        args.apikey,
+        args.database,
+        output_format=args.output_format,
+        indent=indent,
+    )
 
     method_map = {
         "identity": odoo.get_user_context,
@@ -476,7 +490,11 @@ if __name__ == "__main__":
 
     if args.command in method_map:
         result = cli_wrapper(method_map[args.command], args)
-        pprint(result)
+        if args.output_format == "json":
+            print(json.dumps(result, indent=indent))
+        else:
+            pprint(result)
+
     else:
         print(f"unsupported command '{args.command}'\n")
         parser.print_help()
