@@ -431,7 +431,7 @@ class OdooApi:
                         print(json.dumps(result, indent=self.indent))
                     else:
                         pprint(result)
-                successfully_dumped_models += model
+                successfully_dumped_models.append(model)
         if len(successfully_dumped_models) > 0:
             # at least, dumping one model has been successful.
             return True
