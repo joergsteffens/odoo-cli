@@ -432,10 +432,8 @@ class OdooApi:
                     else:
                         pprint(result)
                 successfully_dumped_models.append(model)
-        if len(successfully_dumped_models) > 0:
-            # at least, dumping one model has been successful.
-            return True
-        return False
+        # at least, dumping one model has been successful.
+        return len(successfully_dumped_models) > 0
 
     def raw(self, model, method, json_input=None, args=None):
         kwargs = {}
