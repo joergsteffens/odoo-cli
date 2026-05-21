@@ -401,6 +401,7 @@ class OdooApi:
             # currently not installed:
             # "auditlog.rule",
         ]
+        successfully_dumped_models = []
         for model in models:
             domain = None
             if model == "ir.module.module":
@@ -430,7 +431,9 @@ class OdooApi:
                         print(json.dumps(result, indent=self.indent))
                     else:
                         pprint(result)
-        return True
+                successfully_dumped_models.append(model)
+        # at least, dumping one model has been successful.
+        return len(successfully_dumped_models) > 0
 
     def raw(self, model, method, json_input=None, args=None):
         kwargs = {}
