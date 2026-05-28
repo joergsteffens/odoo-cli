@@ -400,6 +400,10 @@ class OdooApi:
             # "res.device.log",
             # currently not installed:
             # "auditlog.rule",
+            # views
+            "ir.ui.view",
+            # reports
+            "ir.actions.report",
         ]
         successfully_dumped_models = []
         for model in models:
