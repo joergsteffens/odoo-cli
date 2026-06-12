@@ -371,6 +371,7 @@ class OdooApi:
             # system parameter
             "ir.config_parameter",
             "ir.module.module",
+            "ir.model.data",
             # company
             "res.company",
             "res.lang",
@@ -389,6 +390,9 @@ class OdooApi:
             "sale.order.template",
             "sale.subscription.plan",
             "mail.template",
+            # groups
+            "res.groups",
+            "res.groups.privilege",
             # user config
             "res.users",
             "res.users.settings",
