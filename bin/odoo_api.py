@@ -212,7 +212,7 @@ def get_argparser():
         nargs="+",
         action=ParseKwargs,
         metavar="key=value",
-        help="Parameter for the method, additional to the JSON structue, as key-value pairs.",
+        help="Parameter for the method, additional to the JSON structure, as key-value pairs.",
     )
 
     return argparser
