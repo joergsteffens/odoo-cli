@@ -30,9 +30,12 @@ def parse_json_input(value):
         return json.load(sys.stdin)
 
     # Check if it's a file
-    if Path(value).is_file():
-        with open(value, "r") as f:
-            return json.load(f)
+    try:
+        if Path(value).is_file():
+            with open(value, "r") as f:
+                return json.load(f)
+    except OSError:
+        pass
 
     # Parse as JSON string
     try:
