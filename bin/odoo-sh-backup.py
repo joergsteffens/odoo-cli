@@ -4,9 +4,12 @@ backup as a single ZIP that can be restored directly (Database Manager,
 /web/database/restore)."""
 
 import argparse
+import fcntl
 import gzip
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -39,7 +42,21 @@ SSH_OPTS = [
     "-o",
     "ConnectTimeout=15",
 ]
+
+# Timeouts so an unattended run cannot block forever: the SSH guard is killed
+# after SSH_TIMEOUT seconds, rsync aborts after RSYNC_TIMEOUT seconds without
+# any I/O on the connection.
+SSH_TIMEOUT = 60
+RSYNC_TIMEOUT = 600
+
+# Marker file identifying a directory as a mirror owned by this tool.
+MIRROR_MARKER = ".odoo-sh-backup-mirror"
+
 JSONRPC_CALL = {"jsonrpc": "2.0", "method": "call", "params": {}}
+
+HOST_RE = re.compile(r"[A-Za-z0-9.-]+")
+DB_RE = re.compile(r"[A-Za-z0-9_-]+")
+BUILD_ID_RE = re.compile(r"[0-9]+")
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -78,6 +95,18 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=BUILD_ID,
         help="Odoo.sh build id / SSH user (default: derived from the database name)",
     )
+    parser.add_argument(
+        "--ssh-timeout",
+        type=int,
+        default=SSH_TIMEOUT,
+        help="seconds before the SSH guard is aborted (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--rsync-timeout",
+        type=int,
+        default=RSYNC_TIMEOUT,
+        help="seconds without rsync I/O before it aborts (default: %(default)s)",
+    )
     return parser.parse_args(argv)
 
 
@@ -87,14 +116,53 @@ def log(message: str) -> None:
         print(message, flush=True)
 
 
-def ensure_writable_dir(path: Path) -> None:
-    """Create the directory if needed and fail early if it is not writable."""
+def validate_value(kind: str, value: str, pattern) -> str:
+    """Return value if it matches pattern, else raise.
+
+    Database, build id and host end up in SSH/rsync command arguments, so
+    restrict them to characters that cannot alter a remote shell command.
+    """
+    if not pattern.fullmatch(value):
+        raise RuntimeError(f"invalid {kind}: {value!r}")
+    return value
+
+
+def prepare_target_dir(path: Path) -> Path:
+    """Create the mirror directory and verify that it is usable.
+
+    A marker file identifies directories owned by this tool. Refuse to use a
+    non-empty directory without the marker, because --delete-excluded would
+    delete its contents.
+    """
     path.mkdir(parents=True, exist_ok=True)
+    marker = path / MIRROR_MARKER
+    if not marker.exists():
+        if any(path.iterdir()):
+            raise RuntimeError(
+                f"{path} is not empty and lacks {MIRROR_MARKER}; refusing to "
+                "use it as a backup mirror (--delete-excluded would delete "
+                "its contents)"
+            )
+        marker.touch()
     try:
         with tempfile.TemporaryFile(dir=path):
             pass
     except OSError as e:
         raise RuntimeError(f"{path} is not writable: {e}") from e
+    return marker
+
+
+def lock_mirror(marker: Path):
+    """Take an exclusive, non-blocking lock on the mirror for this process."""
+    handle = marker.open("r")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        handle.close()
+        raise RuntimeError(
+            f"another odoo-sh-backup run is using {marker.parent}"
+        ) from e
+    return handle
 
 
 def discover_db(host: str) -> str:
@@ -119,31 +187,60 @@ def discover_db(host: str) -> str:
 
 
 def resolve_db(host: str, db: str, build_id: str):
-    """Return (database, build id), using the overrides when set."""
-    if db and build_id:
-        return db, build_id
-    log("discovering database/build id ...")
-    discovered = discover_db(host)
-    return db or discovered, build_id or discovered.rsplit("-", 1)[-1]
+    """Return (database, build id).
+
+    An explicit database is never looked up, and its build id is derived from
+    its name, keeping both paired. Discovery only happens when no database
+    was supplied.
+    """
+    if not db:
+        log("discovering database/build id ...")
+        db = discover_db(host)
+    if not db:
+        raise RuntimeError(f"cannot determine database/build id from {host}")
+    if not build_id:
+        build_id = db.rsplit("-", 1)[-1]
+    return db, build_id
 
 
-def sync_backups(ssh_host: str, db: str, db_prefix: str, target_dir: Path) -> None:
+def sync_backups(
+    ssh_host: str,
+    db: str,
+    db_prefix: str,
+    target_dir: Path,
+    ssh_timeout: int,
+    rsync_timeout: int,
+) -> None:
     """Mirror the *_daily artifacts of the remote backup.daily directory.
 
     target_dir is dedicated to this mirror, so --delete-excluded also removes
     everything else in it (pre-update backups, files from previous build
-    ids, ...).
+    ids, ...), except for the mirror marker.
     """
+    ssh_bin = shutil.which("ssh")
+    if not ssh_bin:
+        raise RuntimeError("ssh not found in PATH")
+    rsync_bin = shutil.which("rsync")
+    if not rsync_bin:
+        raise RuntimeError("rsync not found in PATH")
+
     # Refuse to mirror (and therefore delete) when the remote daily dump is
     # missing, e.g. during a botched deploy or with a stale build id.
     # ssh exits with 255 on its own errors (auth, connection), otherwise
     # with the remote command's exit status.
+    remote_dump = shlex.quote(f"backup.daily/{db}_daily.sql.gz")
     log(f"checking {db}_daily.sql.gz on {ssh_host} ...")
-    guard = subprocess.run(
-        ["ssh", *SSH_OPTS, ssh_host, "test", "-f", f"backup.daily/{db}_daily.sql.gz"],
-        check=False,
-        stderr=subprocess.PIPE,
-    )
+    try:
+        guard = subprocess.run(
+            [ssh_bin, *SSH_OPTS, ssh_host, "test", "-f", remote_dump],
+            check=False,
+            stderr=subprocess.PIPE,
+            timeout=ssh_timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"ssh check on {ssh_host} timed out after {ssh_timeout}s"
+        ) from e
     # Decode instead of subprocess text mode, which needs Python 3.7.
     stderr = guard.stderr.decode("utf-8", errors="replace").strip()
     if guard.returncode == 255:
@@ -158,17 +255,20 @@ def sync_backups(ssh_host: str, db: str, db_prefix: str, target_dir: Path) -> No
     log(f"syncing backup.daily from {ssh_host} to {target_dir} ...")
     subprocess.run(
         [
-            "rsync",
+            rsync_bin,
             "-avh",
             "--partial",
             "--progress",
             "--delete",
             "--delete-excluded",
+            # Protect the marker before --exclude=* turns it into a deletion.
+            f"--filter=P /{MIRROR_MARKER}",
             f"--include=/{db_prefix}-*_daily*",
             f"--include=/{db_prefix}-*_daily*/**",
             "--exclude=*",
+            f"--timeout={rsync_timeout}",
             "-e",
-            " ".join(["ssh", *SSH_OPTS]),
+            " ".join([ssh_bin, *SSH_OPTS]),
             f"{ssh_host}:backup.daily/",
             f"{target_dir}/",
         ],
@@ -211,24 +311,42 @@ def main(argv=None) -> None:
 
     args = parse_args(argv)
     VERBOSE = args.verbose
-    ensure_writable_dir(args.target_dir)
+    validate_value("host", args.host, HOST_RE)
 
-    db, build_id = resolve_db(args.host, args.db, args.build_id)
-    log(f"database: {db}")
-    ssh_host = f"{build_id}@{args.host}"
-    # Without the trailing build id, so dailies of previous builds still
-    # match the filters and get deleted locally after a redeploy.
-    db_prefix = db.rsplit("-", 1)[0]
+    # Prepare and lock the mirror before touching anything, so concurrent runs
+    # cannot sync and zip the same directory at the same time.
+    marker = prepare_target_dir(args.target_dir)
+    lock = lock_mirror(marker)
+    try:
+        db, build_id = resolve_db(args.host, args.db, args.build_id)
+        validate_value("database name", db, DB_RE)
+        validate_value("build id", build_id, BUILD_ID_RE)
+        log(f"database: {db}")
+        ssh_host = f"{build_id}@{args.host}"
+        # Without the trailing build id, so dailies of previous builds still
+        # match the filters and get deleted locally after a redeploy.
+        db_prefix = db.rsplit("-", 1)[0]
 
-    sync_backups(ssh_host, db, db_prefix, args.target_dir)
-    zip_file = args.zip_file or args.target_dir.parent / f"{args.target_dir.name}.zip"
-    create_backup_zip(db, args.target_dir, zip_file)
+        sync_backups(
+            ssh_host,
+            db,
+            db_prefix,
+            args.target_dir,
+            args.ssh_timeout,
+            args.rsync_timeout,
+        )
+        zip_file = args.zip_file or args.target_dir.parent / (
+            f"{args.target_dir.name}.zip"
+        )
+        create_backup_zip(db, args.target_dir, zip_file)
+    finally:
+        lock.close()
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as e:
+    except (RuntimeError, subprocess.SubprocessError, OSError) as e:
         ts = datetime.now().astimezone().isoformat()
         print(f"odoo-sh-backup failed at {ts}: {e}", file=sys.stderr, flush=True)
         sys.exit(1)
