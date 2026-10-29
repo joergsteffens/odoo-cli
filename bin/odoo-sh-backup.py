@@ -263,6 +263,11 @@ def sync_backups(
             "--delete-excluded",
             # Protect the marker before --exclude=* turns it into a deletion.
             f"--filter=P /{MIRROR_MARKER}",
+            # Exact database first: a name without "-" is not matched by the
+            # prefix pattern below. Then the prefix, so dailies of previous
+            # build ids are still transferred and cleaned up.
+            f"--include=/{db}_daily*",
+            f"--include=/{db}_daily*/**",
             f"--include=/{db_prefix}-*_daily*",
             f"--include=/{db_prefix}-*_daily*/**",
             "--exclude=*",
@@ -296,6 +301,13 @@ def create_backup_zip(db: str, target_dir: Path, zip_file: Path) -> None:
                 for path in sorted(filestore_src.rglob("*")):
                     if path.is_file():
                         zf.write(path, f"filestore/{path.relative_to(filestore_src)}")
+            else:
+                print(
+                    f"warning: {filestore_src} is missing; the ZIP will not "
+                    "contain a filestore",
+                    file=sys.stderr,
+                    flush=True,
+                )
         os.replace(zip_tmp, zip_file)
     except BaseException:
         try:
