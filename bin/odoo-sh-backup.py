@@ -69,6 +69,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="print progress messages",
     )
     parser.add_argument(
+        "--zip-only",
+        action="store_true",
+        help="only create the ZIP from the existing mirror; do not download",
+    )
+    parser.add_argument(
         "--host",
         default=PROJECT_HOST,
         help="Odoo.sh project host (default: %(default)s)",
@@ -127,17 +132,18 @@ def validate_value(kind: str, value: str, pattern) -> str:
     return value
 
 
-def prepare_target_dir(path: Path) -> Path:
+def prepare_target_dir(path: Path, require_marker: bool = True) -> Path:
     """Create the mirror directory and verify that it is usable.
 
     A marker file identifies directories owned by this tool. Refuse to use a
     non-empty directory without the marker, because --delete-excluded would
-    delete its contents.
+    delete its contents. ZIP-only mode passes require_marker=False, as it
+    never deletes anything.
     """
     path.mkdir(parents=True, exist_ok=True)
     marker = path / MIRROR_MARKER
     if not marker.exists():
-        if any(path.iterdir()):
+        if require_marker and any(path.iterdir()):
             raise RuntimeError(
                 f"{path} is not empty and lacks {MIRROR_MARKER}; refusing to "
                 "use it as a backup mirror (--delete-excluded would delete "
@@ -206,6 +212,14 @@ def resolve_db(host: str, db: str, build_id: str):
     if build_id and build_id != derived_build_id:
         raise RuntimeError(f"build id {build_id!r} does not match database {db!r}")
     return db, derived_build_id
+
+
+def detect_db(target_dir: Path) -> str:
+    """Infer the database name from the mirror's *_daily.sql.gz file."""
+    candidates = sorted(target_dir.glob("*_daily.sql.gz"))
+    if len(candidates) != 1:
+        raise RuntimeError(f"cannot determine the database in {target_dir}; pass --db")
+    return candidates[0].name[: -len("_daily.sql.gz")]
 
 
 def resolve_zip_file(target_dir: Path, zip_file):
@@ -344,13 +358,23 @@ def main(argv=None) -> None:
 
     args = parse_args(argv)
     VERBOSE = args.verbose
-    validate_value("host", args.host, HOST_RE)
 
     # Prepare and lock the mirror before touching anything, so concurrent runs
     # cannot sync and zip the same directory at the same time.
-    marker = prepare_target_dir(args.target_dir)
+    marker = prepare_target_dir(args.target_dir, require_marker=not args.zip_only)
     lock = lock_mirror(marker)
     try:
+        zip_file = resolve_zip_file(args.target_dir, args.zip_file)
+
+        if args.zip_only:
+            db = validate_value(
+                "database name", args.db or detect_db(args.target_dir), DB_RE
+            )
+            log(f"database: {db}")
+            create_backup_zip(db, args.target_dir, zip_file)
+            return
+
+        validate_value("host", args.host, HOST_RE)
         db, build_id = resolve_db(args.host, args.db, args.build_id)
         validate_value("database name", db, DB_RE)
         validate_value("build id", build_id, BUILD_ID_RE)
@@ -360,7 +384,6 @@ def main(argv=None) -> None:
         # match the filters and get deleted locally after a redeploy.
         db_prefix = db.rsplit("-", 1)[0]
 
-        zip_file = resolve_zip_file(args.target_dir, args.zip_file)
         sync_backups(
             ssh_host,
             db,
