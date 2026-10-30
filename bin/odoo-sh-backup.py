@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
 """Mirror Odoo.sh's backup.daily directory to this host and repack the daily
-backup as a single ZIP that can be restored directly (Database Manager,
-/web/database/restore)."""
+backup as a single ZIP restorable directly (Database Manager,
+/web/database/restore).
+
+Safety model:
+- The mirror lives in a dedicated MIRROR_SUBDIR below --target-dir. rsync
+  runs with --delete/--delete-excluded, but its deletions are confined to
+  that subdirectory by construction.
+- Runs are serialized with a non-blocking flock on a lock file inside
+  --target-dir. The lock file lies outside MIRROR_SUBDIR, so the rsync
+  deletion cannot remove it.
+- The SSH guard refuses to sync when the remote daily dump is missing, and
+  the guard (idleness-limited rsync) cannot stall the run forever.
+- Host, database name and build id are validated before they touch ssh or
+  rsync command arguments.
+"""
 
 import argparse
 import fcntl
@@ -21,7 +34,7 @@ from pathlib import Path
 
 PROJECT_HOST = "bareos.odoo.com"
 TARGET_DIR = Path("/var/local/odoo-backup/odoo-daily-backup")
-# Where to write the restorable ZIP (default: <TARGET_DIR>.zip).
+# Where to write the restorable ZIP (default: <TARGET_DIR>/odoo-daily.zip).
 ZIP_FILE = None  # Path or None
 
 # Optional overrides. Leave empty to derive both from the database name that
@@ -49,8 +62,10 @@ SSH_OPTS = [
 SSH_TIMEOUT = 60
 RSYNC_TIMEOUT = 600
 
-# Marker file identifying a directory as a mirror owned by this tool.
-MIRROR_MARKER = ".odoo-sh-backup-mirror"
+# Everything the tool writes into --target-dir besides the mirror itself.
+MIRROR_SUBDIR = "mirror"
+LOCK_FILE = ".odoo-sh-backup.lock"
+DEFAULT_ZIP_NAME = "odoo-daily.zip"
 
 JSONRPC_CALL = {"jsonrpc": "2.0", "method": "call", "params": {}}
 
@@ -82,13 +97,14 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--target-dir",
         type=Path,
         default=TARGET_DIR,
-        help="local mirror directory, dedicated to this backup (default: %(default)s)",
+        help="backup directory holding the mirror (default: %(default)s)",
     )
     parser.add_argument(
         "--zip-file",
         type=Path,
         default=ZIP_FILE,
-        help="where to write the restorable ZIP (default: <target-dir>.zip)",
+        help=f"where to write the restorable ZIP "
+        f"(default: <target-dir>/{DEFAULT_ZIP_NAME})",
     )
     parser.add_argument(
         "--db",
@@ -133,55 +149,45 @@ def validate_value(kind: str, value: str, pattern) -> str:
 
 
 def prepare_target_dir(path: Path) -> Path:
-    """Create the mirror directory and verify that it is usable.
+    """Create the backup directory and return the mirror subdirectory path.
 
-    A marker file identifies directories owned by this tool. Refuse to use a
-    non-empty directory without the marker, because --delete-excluded would
-    delete its contents.
+    Anything the tool may delete lives in MIRROR_SUBDIR. A directory holding
+    files directly below target_dir is an old layout; refuse it with clear
+    instructions instead of ever deleting them.
     """
     path.mkdir(parents=True, exist_ok=True)
-    marker = path / MIRROR_MARKER
-    if not marker.exists():
-        if any(path.iterdir()):
-            raise RuntimeError(
-                f"{path} is not empty and lacks {MIRROR_MARKER}; refusing to "
-                "use it as a backup mirror (--delete-excluded would delete "
-                "its contents)"
-            )
-        marker.touch()
+    mirror_dir = path / MIRROR_SUBDIR
+    unexpected = [
+        p.name for p in path.iterdir() if p.name != LOCK_FILE and not p.is_dir()
+    ]
+    if not mirror_dir.is_dir() and unexpected:
+        raise RuntimeError(
+            f"{path} contains unexpected files (e.g. {unexpected[0]!r}) but "
+            f"no {MIRROR_SUBDIR}/ directory; this looks like an outdated "
+            f"layout. Move the *_daily backup files into {mirror_dir} "
+            f"manually, or empty {path} first."
+        )
     try:
         with tempfile.TemporaryFile(dir=path):
             pass
     except OSError as e:
         raise RuntimeError(f"{path} is not writable: {e}") from e
-    return marker
+    return mirror_dir
 
 
-def lock_mirror(marker: Path):
-    """Take an exclusive, non-blocking lock on the mirror for this process."""
-    handle = marker.open("r")
+def acquire_lock(target_dir: Path):
+    """Take an exclusive, non-blocking lock on this backup directory.
+
+    The lock file lies outside MIRROR_SUBDIR, so mirror deletions can never
+    remove it.
+    """
+    handle = (target_dir / LOCK_FILE).open("w")
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as e:
         handle.close()
-        raise RuntimeError(
-            f"another odoo-sh-backup run is using {marker.parent}"
-        ) from e
+        raise RuntimeError(f"another odoo-sh-backup run is using {target_dir}") from e
     return handle
-
-
-def lock_existing_mirror(path: Path):
-    """Lock a marked mirror for ZIP-only; never create the ownership marker.
-
-    Marking an unowned directory here would let a later normal run treat it
-    as a mirror and delete its contents with --delete-excluded.
-    """
-    if not path.is_dir():
-        raise RuntimeError(f"{path} does not exist; nothing to zip")
-    marker = path / MIRROR_MARKER
-    if not marker.exists():
-        return None
-    return lock_mirror(marker)
 
 
 def discover_db(host: str) -> str:
@@ -227,15 +233,15 @@ def resolve_db(host: str, db: str, build_id: str):
     return db, derived_build_id
 
 
-def detect_db(target_dir: Path) -> str:
+def detect_db(mirror_dir: Path) -> str:
     """Infer the database name from the mirror's *_daily.sql.gz file."""
-    candidates = sorted(target_dir.glob("*_daily.sql.gz"))
+    candidates = sorted(mirror_dir.glob("*_daily.sql.gz"))
     if len(candidates) != 1:
-        raise RuntimeError(f"cannot determine the database in {target_dir}; pass --db")
+        raise RuntimeError(f"cannot determine the database in {mirror_dir}; pass --db")
     return candidates[0].name[: -len("_daily.sql.gz")]
 
 
-def resolve_zip_file(target_dir: Path, zip_file):
+def resolve_zip_file(target_dir: Path, mirror_dir: Path, zip_file):
     """Return the ZIP path, refusing locations inside the mirror directory.
 
     The mirror is cleaned with --delete-excluded on every sync, so a ZIP
@@ -243,13 +249,13 @@ def resolve_zip_file(target_dir: Path, zip_file):
     sync) instead of being kept as the last restorable backup.
     """
     if zip_file is None:
-        zip_file = target_dir.parent / f"{target_dir.name}.zip"
+        zip_file = target_dir / DEFAULT_ZIP_NAME
     # resolve() also expands symlinks (strict=False is the default on 3.6),
     # so a symlinked directory cannot smuggle the ZIP into the mirror.
-    target_root = target_dir.resolve()
+    mirror_root = mirror_dir.resolve()
     zip_path = zip_file.resolve()
-    if zip_path == target_root or target_root in zip_path.parents:
-        raise RuntimeError("--zip-file must be outside --target-dir")
+    if zip_path == mirror_root or mirror_root in zip_path.parents:
+        raise RuntimeError(f"--zip-file must be outside {mirror_dir}")
     return zip_file
 
 
@@ -257,16 +263,11 @@ def sync_backups(
     ssh_host: str,
     db: str,
     db_prefix: str,
-    target_dir: Path,
+    mirror_dir: Path,
     ssh_timeout: int,
     rsync_timeout: int,
 ) -> None:
-    """Mirror the *_daily artifacts of the remote backup.daily directory.
-
-    target_dir is dedicated to this mirror, so --delete-excluded also removes
-    everything else in it (pre-update backups, files from previous build
-    ids, ...), except for the mirror marker.
-    """
+    """Mirror the *_daily artifacts of the remote backup.daily directory."""
     ssh_bin = shutil.which("ssh")
     if not ssh_bin:
         raise RuntimeError("ssh not found in PATH")
@@ -302,7 +303,7 @@ def sync_backups(
         raise RuntimeError(
             f"remote daily backup {db}_daily.sql.gz not found; not syncing"
         )
-    log(f"syncing backup.daily from {ssh_host} to {target_dir} ...")
+    log(f"syncing backup.daily from {ssh_host} to {mirror_dir} ...")
     subprocess.run(
         [
             rsync_bin,
@@ -311,11 +312,10 @@ def sync_backups(
             "--progress",
             "--delete",
             "--delete-excluded",
-            # Protect the marker before --exclude=* turns it into a deletion.
-            f"--filter=P /{MIRROR_MARKER}",
             # Exact database first: a name without "-" is not matched by the
             # prefix pattern below. Then the prefix, so dailies of previous
-            # build ids are still transferred and cleaned up.
+            # build ids are still transferred and cleaned up. Deletions are
+            # confined to mirror_dir by the transfer roots.
             f"--include=/{db}_daily*",
             f"--include=/{db}_daily*/**",
             f"--include=/{db_prefix}-*_daily*",
@@ -325,18 +325,18 @@ def sync_backups(
             "-e",
             " ".join([ssh_bin, *SSH_OPTS]),
             f"{ssh_host}:backup.daily/",
-            f"{target_dir}/",
+            f"{mirror_dir}/",
         ],
         check=True,
     )
 
 
-def create_backup_zip(db: str, target_dir: Path, zip_file: Path) -> None:
+def create_backup_zip(db: str, mirror_dir: Path, zip_file: Path) -> None:
     """Repack the synced daily backup into a single ZIP with the same layout
     as an Odoo.sh download (dump.sql + manifest.json + filestore/)."""
     log(f"creating backup zip {zip_file} ...")
-    sql_gz = target_dir / f"{db}_daily.sql.gz"
-    filestore_src = target_dir / f"{db}_daily" / "home/odoo/data/filestore" / db
+    sql_gz = mirror_dir / f"{db}_daily.sql.gz"
+    filestore_src = mirror_dir / f"{db}_daily" / "home/odoo/data/filestore" / db
     zip_tmp = zip_file.with_name(f"{zip_file.name}.tmp.{os.getpid()}")
     try:
         with zipfile.ZipFile(zip_tmp, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -374,22 +374,22 @@ def main(argv=None) -> None:
     args = parse_args(argv)
     VERBOSE = args.verbose
 
-    # Prepare and lock the mirror before touching anything, so concurrent runs
-    # cannot sync and zip the same directory at the same time. ZIP-only must
-    # not create the ownership marker in an unowned directory.
-    if args.zip_only:
-        lock = lock_existing_mirror(args.target_dir)
-    else:
-        lock = lock_mirror(prepare_target_dir(args.target_dir))
+    if args.zip_only and not args.target_dir.is_dir():
+        raise RuntimeError(f"{args.target_dir} does not exist; nothing to zip")
+    mirror_dir = prepare_target_dir(args.target_dir)
+
+    # Lock before touching anything, so concurrent runs cannot sync and zip
+    # the same directory at the same time.
+    lock = acquire_lock(args.target_dir)
     try:
-        zip_file = resolve_zip_file(args.target_dir, args.zip_file)
+        zip_file = resolve_zip_file(args.target_dir, mirror_dir, args.zip_file)
 
         if args.zip_only:
             db = validate_value(
-                "database name", args.db or detect_db(args.target_dir), DB_RE
+                "database name", args.db or detect_db(mirror_dir), DB_RE
             )
             log(f"database: {db}")
-            create_backup_zip(db, args.target_dir, zip_file)
+            create_backup_zip(db, mirror_dir, zip_file)
             return
 
         validate_value("host", args.host, HOST_RE)
@@ -406,14 +406,13 @@ def main(argv=None) -> None:
             ssh_host,
             db,
             db_prefix,
-            args.target_dir,
+            mirror_dir,
             args.ssh_timeout,
             args.rsync_timeout,
         )
-        create_backup_zip(db, args.target_dir, zip_file)
+        create_backup_zip(db, mirror_dir, zip_file)
     finally:
-        if lock is not None:
-            lock.close()
+        lock.close()
 
 
 if __name__ == "__main__":
