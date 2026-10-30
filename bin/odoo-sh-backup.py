@@ -116,18 +116,6 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=BUILD_ID,
         help="Odoo.sh build id / SSH user (default: derived from the database name)",
     )
-    parser.add_argument(
-        "--ssh-timeout",
-        type=int,
-        default=SSH_TIMEOUT,
-        help="seconds before the SSH guard is aborted (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--rsync-timeout",
-        type=int,
-        default=RSYNC_TIMEOUT,
-        help="seconds without rsync I/O before it aborts (default: %(default)s)",
-    )
     return parser.parse_args(argv)
 
 
@@ -259,26 +247,22 @@ def resolve_zip_file(target_dir: Path, mirror_dir: Path, zip_file):
     return zip_file
 
 
-def sync_backups(
-    ssh_host: str,
-    db: str,
-    db_prefix: str,
-    mirror_dir: Path,
-    ssh_timeout: int,
-    rsync_timeout: int,
-) -> None:
-    """Mirror the *_daily artifacts of the remote backup.daily directory."""
-    ssh_bin = shutil.which("ssh")
-    if not ssh_bin:
-        raise RuntimeError("ssh not found in PATH")
-    rsync_bin = shutil.which("rsync")
-    if not rsync_bin:
-        raise RuntimeError("rsync not found in PATH")
+def require_tool(name: str) -> str:
+    """Return the absolute path of a required executable."""
+    path = shutil.which(name)
+    if not path:
+        raise RuntimeError(f"{name} not found in PATH")
+    return path
 
-    # Refuse to mirror (and therefore delete) when the remote daily dump is
-    # missing, e.g. during a botched deploy or with a stale build id.
-    # ssh exits with 255 on its own errors (auth, connection), otherwise
-    # with the remote command's exit status.
+
+def guard_remote_dump(ssh_host: str, db: str) -> None:
+    """Refuse to mirror (and therefore delete) when the remote daily dump is
+    missing, e.g. during a botched deploy or with a stale build id.
+
+    ssh exits with 255 on its own errors (auth, connection), otherwise
+    with the remote command's exit status.
+    """
+    ssh_bin = require_tool("ssh")
     remote_dump = shlex.quote(f"backup.daily/{db}_daily.sql.gz")
     log(f"checking {db}_daily.sql.gz on {ssh_host} ...")
     try:
@@ -286,11 +270,11 @@ def sync_backups(
             [ssh_bin, *SSH_OPTS, ssh_host, "test", "-f", remote_dump],
             check=False,
             stderr=subprocess.PIPE,
-            timeout=ssh_timeout,
+            timeout=SSH_TIMEOUT,
         )
     except subprocess.TimeoutExpired as e:
         raise RuntimeError(
-            f"ssh check on {ssh_host} timed out after {ssh_timeout}s"
+            f"ssh check on {ssh_host} timed out after {SSH_TIMEOUT}s"
         ) from e
     # Decode instead of subprocess text mode, which needs Python 3.7.
     stderr = guard.stderr.decode("utf-8", errors="replace").strip()
@@ -303,6 +287,17 @@ def sync_backups(
         raise RuntimeError(
             f"remote daily backup {db}_daily.sql.gz not found; not syncing"
         )
+
+
+def mirror_backup(ssh_host: str, db: str, db_prefix: str, mirror_dir: Path) -> None:
+    """rsync the *_daily artifacts of the remote backup.daily directory.
+
+    Exact database first: a name without "-" is not matched by the prefix
+    pattern below. Then the prefix, so dailies of previous build ids are
+    still transferred and cleaned up. Deletions are confined to mirror_dir
+    by the transfer roots.
+    """
+    rsync_bin = require_tool("rsync")
     log(f"syncing backup.daily from {ssh_host} to {mirror_dir} ...")
     subprocess.run(
         [
@@ -312,18 +307,14 @@ def sync_backups(
             "--progress",
             "--delete",
             "--delete-excluded",
-            # Exact database first: a name without "-" is not matched by the
-            # prefix pattern below. Then the prefix, so dailies of previous
-            # build ids are still transferred and cleaned up. Deletions are
-            # confined to mirror_dir by the transfer roots.
             f"--include=/{db}_daily*",
             f"--include=/{db}_daily*/**",
             f"--include=/{db_prefix}-*_daily*",
             f"--include=/{db_prefix}-*_daily*/**",
             "--exclude=*",
-            f"--timeout={rsync_timeout}",
+            f"--timeout={RSYNC_TIMEOUT}",
             "-e",
-            " ".join([ssh_bin, *SSH_OPTS]),
+            " ".join([require_tool("ssh"), *SSH_OPTS]),
             f"{ssh_host}:backup.daily/",
             f"{mirror_dir}/",
         ],
@@ -402,14 +393,8 @@ def main(argv=None) -> None:
         # match the filters and get deleted locally after a redeploy.
         db_prefix = db.rsplit("-", 1)[0]
 
-        sync_backups(
-            ssh_host,
-            db,
-            db_prefix,
-            mirror_dir,
-            args.ssh_timeout,
-            args.rsync_timeout,
-        )
+        guard_remote_dump(ssh_host, db)
+        mirror_backup(ssh_host, db, db_prefix, mirror_dir)
         create_backup_zip(db, mirror_dir, zip_file)
     finally:
         lock.close()
