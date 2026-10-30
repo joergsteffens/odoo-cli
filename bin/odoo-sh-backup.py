@@ -3,6 +3,8 @@
 backup as a single ZIP restorable directly (Database Manager,
 /web/database/restore).
 
+upstream: https://github.com/joergsteffens/odoo-cli
+
 Safety model:
 - The mirror lives in a dedicated MIRROR_SUBDIR below --target-dir. rsync
   runs with --delete/--delete-excluded, but its deletions are confined to
