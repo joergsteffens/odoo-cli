@@ -132,18 +132,17 @@ def validate_value(kind: str, value: str, pattern) -> str:
     return value
 
 
-def prepare_target_dir(path: Path, require_marker: bool = True) -> Path:
+def prepare_target_dir(path: Path) -> Path:
     """Create the mirror directory and verify that it is usable.
 
     A marker file identifies directories owned by this tool. Refuse to use a
     non-empty directory without the marker, because --delete-excluded would
-    delete its contents. ZIP-only mode passes require_marker=False, as it
-    never deletes anything.
+    delete its contents.
     """
     path.mkdir(parents=True, exist_ok=True)
     marker = path / MIRROR_MARKER
     if not marker.exists():
-        if require_marker and any(path.iterdir()):
+        if any(path.iterdir()):
             raise RuntimeError(
                 f"{path} is not empty and lacks {MIRROR_MARKER}; refusing to "
                 "use it as a backup mirror (--delete-excluded would delete "
@@ -169,6 +168,20 @@ def lock_mirror(marker: Path):
             f"another odoo-sh-backup run is using {marker.parent}"
         ) from e
     return handle
+
+
+def lock_existing_mirror(path: Path):
+    """Lock a marked mirror for ZIP-only; never create the ownership marker.
+
+    Marking an unowned directory here would let a later normal run treat it
+    as a mirror and delete its contents with --delete-excluded.
+    """
+    if not path.is_dir():
+        raise RuntimeError(f"{path} does not exist; nothing to zip")
+    marker = path / MIRROR_MARKER
+    if not marker.exists():
+        return None
+    return lock_mirror(marker)
 
 
 def discover_db(host: str) -> str:
@@ -231,8 +244,10 @@ def resolve_zip_file(target_dir: Path, zip_file):
     """
     if zip_file is None:
         zip_file = target_dir.parent / f"{target_dir.name}.zip"
-    target_root = Path(os.path.abspath(str(target_dir)))
-    zip_path = Path(os.path.abspath(str(zip_file)))
+    # resolve() also expands symlinks (strict=False is the default on 3.6),
+    # so a symlinked directory cannot smuggle the ZIP into the mirror.
+    target_root = target_dir.resolve()
+    zip_path = zip_file.resolve()
     if zip_path == target_root or target_root in zip_path.parents:
         raise RuntimeError("--zip-file must be outside --target-dir")
     return zip_file
@@ -360,9 +375,12 @@ def main(argv=None) -> None:
     VERBOSE = args.verbose
 
     # Prepare and lock the mirror before touching anything, so concurrent runs
-    # cannot sync and zip the same directory at the same time.
-    marker = prepare_target_dir(args.target_dir, require_marker=not args.zip_only)
-    lock = lock_mirror(marker)
+    # cannot sync and zip the same directory at the same time. ZIP-only must
+    # not create the ownership marker in an unowned directory.
+    if args.zip_only:
+        lock = lock_existing_mirror(args.target_dir)
+    else:
+        lock = lock_mirror(prepare_target_dir(args.target_dir))
     try:
         zip_file = resolve_zip_file(args.target_dir, args.zip_file)
 
@@ -394,7 +412,8 @@ def main(argv=None) -> None:
         )
         create_backup_zip(db, args.target_dir, zip_file)
     finally:
-        lock.close()
+        if lock is not None:
+            lock.close()
 
 
 if __name__ == "__main__":
