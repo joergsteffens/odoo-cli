@@ -179,11 +179,15 @@ def discover_db(host: str) -> str:
         headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.load(resp)
-    try:
-        return data["result"][0]
-    except (KeyError, IndexError, TypeError) as e:
-        raise RuntimeError(f"unexpected response from {url}") from e
+        try:
+            data = json.load(resp)
+            value = data["result"][0]
+        except (ValueError, KeyError, IndexError, TypeError) as e:
+            raise RuntimeError(f"unexpected response from {url}") from e
+    if not isinstance(value, str):
+        # Same handled error path as for malformed JSON (see above).
+        raise RuntimeError(f"unexpected response from {url}")  # noqa: TRY004
+    return value
 
 
 def resolve_db(host: str, db: str, build_id: str):
@@ -198,9 +202,26 @@ def resolve_db(host: str, db: str, build_id: str):
         db = discover_db(host)
     if not db:
         raise RuntimeError(f"cannot determine database/build id from {host}")
-    if not build_id:
-        build_id = db.rsplit("-", 1)[-1]
-    return db, build_id
+    derived_build_id = db.rsplit("-", 1)[-1]
+    if build_id and build_id != derived_build_id:
+        raise RuntimeError(f"build id {build_id!r} does not match database {db!r}")
+    return db, derived_build_id
+
+
+def resolve_zip_file(target_dir: Path, zip_file):
+    """Return the ZIP path, refusing locations inside the mirror directory.
+
+    The mirror is cleaned with --delete-excluded on every sync, so a ZIP
+    stored inside it would be deleted (potentially right before a failed
+    sync) instead of being kept as the last restorable backup.
+    """
+    if zip_file is None:
+        zip_file = target_dir.parent / f"{target_dir.name}.zip"
+    target_root = Path(os.path.abspath(str(target_dir)))
+    zip_path = Path(os.path.abspath(str(zip_file)))
+    if zip_path == target_root or target_root in zip_path.parents:
+        raise RuntimeError("--zip-file must be outside --target-dir")
+    return zip_file
 
 
 def sync_backups(
@@ -339,6 +360,7 @@ def main(argv=None) -> None:
         # match the filters and get deleted locally after a redeploy.
         db_prefix = db.rsplit("-", 1)[0]
 
+        zip_file = resolve_zip_file(args.target_dir, args.zip_file)
         sync_backups(
             ssh_host,
             db,
@@ -346,9 +368,6 @@ def main(argv=None) -> None:
             args.target_dir,
             args.ssh_timeout,
             args.rsync_timeout,
-        )
-        zip_file = args.zip_file or args.target_dir.parent / (
-            f"{args.target_dir.name}.zip"
         )
         create_backup_zip(db, args.target_dir, zip_file)
     finally:
