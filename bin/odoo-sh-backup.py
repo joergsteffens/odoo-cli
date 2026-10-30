@@ -33,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 
 PROJECT_HOST = "bareos.odoo.com"
-TARGET_DIR = Path("/var/local/odoo-backup/odoo-daily-backup")
+TARGET_DIR = Path("/var/local/odoo-backup/")
 # Where to write the restorable ZIP (default: <TARGET_DIR>/odoo-daily.zip).
 ZIP_FILE = None  # Path or None
 
